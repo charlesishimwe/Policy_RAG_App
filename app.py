@@ -1,17 +1,3 @@
-"""
-Policy RAG Chat App
-Stack: Streamlit + OpenRouter (LLM) + ChromaDB (vector store) + sentence-transformers (embeddings)
-
-Setup:
-  pip install streamlit chromadb sentence-transformers requests python-dotenv
-
-Set your API key in a .env file:
-  OPENROUTER_API_KEY=sk-or-...
-
-Run:
-  streamlit run app.py
-"""
-
 import os
 import time
 import requests
