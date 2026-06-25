@@ -4,26 +4,24 @@ import chromadb
 from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
 
-# ── Config ────────────────────────────────────────────────────────────────────
-POLICIES_DIR      = "./policies"       # folder containing your policy docs
+# ── Config ─────────────────────────────────────────────────────────────────────
+POLICIES_DIR      = "./policies"
 CHROMA_COLLECTION = "policy_docs"
 EMBED_MODEL_NAME  = "all-MiniLM-L6-v2"
-CHUNK_SIZE        = 500                # characters per chunk
-CHUNK_OVERLAP     = 50                 # overlap between chunks
+CHUNK_SIZE        = 500
+CHUNK_OVERLAP     = 50
 
 
-# ── Text extraction (no pypdf needed) ────────────────────────────────────────
+# ── Text extraction (no pypdf, no beautifulsoup) ───────────────────────────────
 def extract_text(filepath: str) -> str:
     ext = os.path.splitext(filepath)[1].lower()
 
-    # Plain text and markdown — works perfectly, no library needed
     if ext in (".txt", ".md"):
         with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
             return f.read()
 
-    # HTML — uses only Python's built-in html.parser, no beautifulsoup needed
     elif ext in (".html", ".htm"):
-        import html
+        # Uses Python built-in html.parser — no extra install needed
         from html.parser import HTMLParser
 
         class TextExtractor(HTMLParser):
@@ -48,75 +46,66 @@ def extract_text(filepath: str) -> str:
 
         with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
             raw = f.read()
-
         parser = TextExtractor()
         parser.feed(raw)
         return "\n".join(parser.texts)
 
-    # PDF — skip gracefully with a helpful message
     elif ext == ".pdf":
-        print(f"  ⚠️  Skipping PDF file: {os.path.basename(filepath)}")
-        print("     Convert it to .txt or .md to include it.")
-        print("     (Tip: open the PDF, select all text, paste into a .txt file)")
+        print(f"  ⚠️  Skipping {os.path.basename(filepath)} — PDF not supported.")
+        print("     Rename it to .txt or .md to include it.")
         return ""
 
     else:
-        print(f"  Skipping unsupported file type: {ext}")
+        print(f"  Skipping unsupported file: {os.path.basename(filepath)}")
         return ""
 
 
-# ── Chunking ──────────────────────────────────────────────────────────────────
-def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
-    # Clean whitespace
+# ── Chunking ───────────────────────────────────────────────────────────────────
+def chunk_text(text: str) -> list:
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
     if not text:
         return []
-
     chunks = []
     start = 0
     while start < len(text):
-        end = start + chunk_size
-        chunk = text[start:end].strip()
+        chunk = text[start : start + CHUNK_SIZE].strip()
         if chunk:
             chunks.append(chunk)
-        start += chunk_size - overlap
-
+        start += CHUNK_SIZE - CHUNK_OVERLAP
     return chunks
 
 
-# ── Main ingestion ─────────────────────────────────────────────────────────────
+# ── Main ───────────────────────────────────────────────────────────────────────
 def ingest():
     if not os.path.exists(POLICIES_DIR):
-        print(f"ERROR: Policies folder not found: {POLICIES_DIR}")
-        print("Create a ./policies/ folder and add your .txt / .md / .pdf files.")
+        print(f"ERROR: '{POLICIES_DIR}' folder not found.")
+        print("Create a ./policies/ folder and add your .txt or .md files.")
         return
 
-    policy_files = [
+    files = [
         f for f in os.listdir(POLICIES_DIR)
         if os.path.isfile(os.path.join(POLICIES_DIR, f))
         and not f.startswith(".")
     ]
 
-    if not policy_files:
-        print(f"No files found in {POLICIES_DIR}. Add your policy documents and try again.")
+    if not files:
+        print(f"No files found in {POLICIES_DIR}.")
         return
 
-    print(f"Found {len(policy_files)} file(s) in {POLICIES_DIR}")
+    print(f"Found {len(files)} file(s)\n")
 
-    # Load embedding model
     print(f"Loading embedding model: {EMBED_MODEL_NAME} ...")
     embed_model = SentenceTransformer(EMBED_MODEL_NAME)
 
-    # Connect to ChromaDB
     client = chromadb.PersistentClient(
         path="./chroma_db",
         settings=Settings(anonymized_telemetry=False),
     )
 
-    # Delete old collection to start fresh
+    # Clear old data and start fresh
     try:
         client.delete_collection(CHROMA_COLLECTION)
-        print("Cleared existing collection.")
+        print("Cleared old collection.\n")
     except Exception:
         pass
 
@@ -127,40 +116,36 @@ def ingest():
 
     total_chunks = 0
 
-    for filename in policy_files:
+    for filename in sorted(files):
         filepath = os.path.join(POLICIES_DIR, filename)
-        print(f"\nProcessing: {filename}")
+        print(f"Processing: {filename}")
 
         text = extract_text(filepath)
         if not text.strip():
-            print(f"  No text extracted from {filename}, skipping.")
+            print(f"  No text found, skipping.\n")
             continue
 
         chunks = chunk_text(text)
         if not chunks:
-            print(f"  No chunks created from {filename}, skipping.")
+            print(f"  No chunks created, skipping.\n")
             continue
 
-        print(f"  → {len(chunks)} chunk(s) created")
+        print(f"  → {len(chunks)} chunks created")
 
-        # Embed all chunks
         embeddings = embed_model.encode(chunks, show_progress_bar=False).tolist()
 
-        # Store in ChromaDB
-        ids       = [f"{filename}_chunk_{i}" for i in range(len(chunks))]
-        metadatas = [{"source": filename, "chunk_index": i} for i in range(len(chunks))]
-
         collection.add(
-            ids=ids,
-            documents=chunks,
-            embeddings=embeddings,
-            metadatas=metadatas,
+            ids       = [f"{filename}_chunk_{i}" for i in range(len(chunks))],
+            documents = chunks,
+            embeddings= embeddings,
+            metadatas = [{"source": filename, "chunk_index": i} for i in range(len(chunks))],
         )
 
         total_chunks += len(chunks)
+        print(f"  ✅ Stored in ChromaDB\n")
 
-    print(f"\n✅ Done! {total_chunks} total chunks stored in ChromaDB.")
-    print("You can now run:  streamlit run app.py")
+    print(f"Done! {total_chunks} total chunks stored in ChromaDB.")
+    print("Now run:  streamlit run app.py")
 
 
 if __name__ == "__main__":
