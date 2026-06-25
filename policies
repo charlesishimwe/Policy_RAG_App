@@ -1,0 +1,822 @@
+Remote Work Policy
+Overview
+Acme Corp supports flexible work arrangements. This policy defines the rules and expectations for employees working remotely, whether full-time or in a hybrid capacity.
+Eligibility
+•
+Employees who have completed at least 90 days of employment are eligible to apply for remote work arrangements.
+•
+Remote work eligibility is determined by the employee's role, performance history, and manager approval.
+•
+Roles that require physical presence (e.g., on-site IT support, lab technicians) are not eligible for remote work.
+Types of Remote Work
+•
+Hybrid Remote: Employees work from the office at least 3 days per week and may work remotely the remaining days.
+•
+Full-Time Remote: Available only for designated remote roles or by special approval from VP-level management and HR.
+•
+Temporary Remote: Short-term remote arrangements (up to 30 days) may be approved by a direct manager without HR involvement.
+Application Process
+1.
+Employee submits a Remote Work Request form via the HR portal.
+2.
+Direct manager reviews and approves or denies within 5 business days.
+3.
+HR reviews approved requests and adds the arrangement to the employee's file.
+4.
+Remote work agreements are reviewed every 6 months.
+Expectations While Working Remotely
+•
+Employees must be available and responsive during core hours: 9:00 AM – 3:00 PM in their local time zone.
+•
+Employees must attend all scheduled meetings via video unless otherwise agreed.
+•
+Response to messages (Slack, email) is expected within 2 hours during core hours.
+•
+Employees must maintain a professional and distraction-free workspace.
+•
+Work hours must still total 40 hours per week for full-time employees.
+Equipment and Technology
+•
+Acme Corp provides a company laptop, monitor, keyboard, and mouse to approved remote employees.
+•
+Employees are responsible for providing a reliable internet connection (minimum 25 Mbps download speed recommended).
+•
+The company will reimburse up to $50/month for internet costs for full-time remote employees, with a receipt submitted through the expense system.
+•
+All company equipment must be used in accordance with the IT Security Policy and returned upon termination.
+Security Requirements
+•
+Employees must use a company-approved VPN when accessing internal systems remotely.
+•
+Public Wi-Fi networks (cafes, airports, hotels) must not be used without the VPN active.
+•
+Company devices must have automatic screen lock enabled (maximum 5-minute timeout).
+•
+Employees must not allow family members or third parties to use company devices.
+Performance and Accountability
+•
+Remote employees are held to the same performance standards as in-office employees.
+•
+Managers will conduct monthly check-ins with remote employees to review workload and productivity.
+•
+Poor performance or failure to meet remote work expectations may result in revocation of remote work privileges.
+Revocation of Remote Work Privileges
+•
+Remote work arrangements may be revoked at any time with 2 weeks' notice from the manager or HR.
+•
+Immediate revocation may occur in cases of security violations or serious misconduct.
+Contact
+For remote work requests or questions, contact hr@acmecorp.com.
+Expense Reimbursement Policy
+Overview
+This policy establishes guidelines for submitting and approving business-related expense reimbursements at Acme Corp. All employees are expected to spend company funds responsibly and in accordance with this policy.
+Eligible Expenses
+The following expenses are eligible for reimbursement when incurred for legitimate business purposes:
+•
+Business travel (flights, trains, rental cars, taxis, rideshares)
+•
+Hotel accommodations during business travel
+•
+Business meals and client entertainment
+•
+Office supplies purchased for remote work
+•
+Conference and event registration fees
+•
+Professional development courses and certifications
+•
+Internet reimbursement for full-time remote employees (up to $50/month)
+Expense Limits
+Meals
+•
+Breakfast: Up to $20 per person
+•
+Lunch: Up to $30 per person
+•
+Dinner: Up to $60 per person
+•
+Client entertainment meals: Up to $100 per person (requires manager pre-approval)
+Travel
+•
+Economy class flights are required for domestic travel and international flights under 6 hours.
+•
+Business class may be approved for international flights over 6 hours with VP approval.
+•
+Hotel accommodation: Up to $200/night in standard cities; up to $300/night in high-cost cities (New York, San Francisco, London, etc.).
+•
+Rental cars: Economy or compact class only, unless unavailable.
+•
+Mileage reimbursement: $0.67 per mile for personal vehicle use (IRS standard rate).
+Other
+•
+Conference registration: Up to $2,000 per event (pre-approval required above $500).
+•
+Professional certifications: Up to $1,000 per year per employee (pre-approval required).
+•
+Office supplies: Up to $100 per month without pre-approval.
+Non-Reimbursable Expenses
+The following expenses will NOT be reimbursed:
+•
+Personal entertainment (movies, sporting events, unless a client is present)
+•
+Alcohol (unless part of an approved client dinner — limit $30/person for alcohol)
+•
+Traffic fines, parking tickets, or other penalties
+•
+Lost or stolen personal items
+•
+Upgrades to flights or hotels not pre-approved
+•
+Expenses for family members or non-employees (unless explicitly approved)
+•
+Gym memberships or personal wellness items
+•
+Expenses submitted more than 60 days after the date incurred
+Submission Process
+1.
+Log in to the Expense Portal at expenses.acmecorp.com.
+2.
+Create a new expense report for each business trip or expense period.
+3.
+Upload receipts for all expenses over $25. Receipts are not required for items under $25, but a description is mandatory.
+4.
+Submit the report to your direct manager for approval.
+5.
+Manager approval must be completed within 5 business days of submission.
+6.
+Finance processes approved reports within 10 business days and reimburses via direct deposit.
+Pre-Approval Requirements
+Pre-approval is required for:
+•
+Any single expense over $500
+•
+International travel
+•
+Client entertainment over $50/person
+•
+Conference registrations over $500
+•
+Any expense not covered in the eligible expenses list above
+Pre-approval requests must be submitted to your manager at least 3 business days before the expense is incurred.
+Corporate Credit Cards
+•
+Employees in the Sales, Marketing, and Senior Management teams may be issued a corporate credit card.
+•
+Corporate cards must only be used for approved business expenses.
+•
+Monthly statements must be reconciled and submitted to Finance by the 5th of each month.
+•
+Misuse of a corporate card may result in disciplinary action, up to and including termination.
+Disputes and Questions
+For questions about expense eligibility or reimbursement status, contact finance@acmecorp.com.
+IT Security Policy
+Overview
+This policy establishes the rules and responsibilities for protecting Acme Corp's information systems, data, and digital assets. All employees, contractors, and third-party vendors with access to company systems must comply with this policy.
+Password Requirements
+•
+Passwords must be at least 12 characters long.
+•
+Passwords must include at least one uppercase letter, one lowercase letter, one number, and one special character (e.g., !, @, #, $).
+•
+Passwords must be changed every 90 days.
+•
+Employees must not reuse any of their last 10 passwords.
+•
+Default or temporary passwords must be changed immediately upon first login.
+•
+Passwords must never be shared with anyone, including IT staff. Acme Corp IT will never ask for your password.
+Multi-Factor Authentication (MFA)
+•
+MFA is mandatory for all company systems, including email, HR portal, expense portal, and all cloud applications.
+•
+Employees must use an approved authenticator app (Google Authenticator, Microsoft Authenticator, or Okta Verify).
+•
+SMS-based MFA is permitted only as a backup method.
+•
+MFA devices must be reported lost or compromised to IT immediately at security@acmecorp.com.
+Device Security
+•
+All company-issued devices (laptops, phones, tablets) must have full-disk encryption enabled.
+•
+Automatic screen lock must be set to 5 minutes or less.
+•
+Operating systems and applications must be kept up to date. IT pushes mandatory updates — employees must not delay or dismiss them.
+•
+Company devices must have the company-approved antivirus/EDR software installed at all times.
+•
+Employees must not install unauthorized software on company devices. Approved software is available in the Company App Store.
+•
+Personal devices may be used for work email only if enrolled in the Mobile Device Management (MDM) system.
+Network Security
+•
+Employees must use the company VPN when accessing internal systems from outside the office.
+•
+Public Wi-Fi must not be used without the VPN active.
+•
+Employees must not connect unauthorized devices (personal routers, smart devices) to the corporate network.
+•
+Home routers used for remote work must use WPA2 or WPA3 encryption.
+Data Handling
+•
+Confidential company data must not be stored on personal devices or personal cloud storage (Google Drive personal, Dropbox personal, etc.).
+•
+Approved cloud storage includes Microsoft OneDrive (company account) and SharePoint.
+•
+Customer data must never be shared externally without authorization from the Data Privacy Officer.
+•
+Physical documents containing sensitive information must be shredded when no longer needed.
+Email and Phishing
+•
+Employees must not click links or open attachments from unknown or suspicious senders.
+•
+Suspected phishing emails must be reported immediately using the "Report Phishing" button in Outlook, or forwarded to security@acmecorp.com.
+•
+Employees must not use personal email accounts for company business.
+•
+Bulk or marketing emails must not be sent from personal company email accounts — use the marketing platform.
+Incident Reporting
+•
+Any suspected security incident (lost device, phishing click, unauthorized access, data breach) must be reported to IT Security within 1 hour of discovery.
+•
+Contact: security@acmecorp.com or call the IT Security Hotline at ext. 5555.
+•
+Employees must not attempt to investigate or resolve security incidents on their own.
+Acceptable Use
+•
+Company systems are for business use. Limited personal use is permitted as long as it does not interfere with work or violate any policies.
+•
+Prohibited activities include: accessing illegal content, downloading pirated software, using company systems for personal financial gain, or any activity that violates applicable law.
+Violations
+•
+Violations of this policy may result in disciplinary action, up to and including termination.
+•
+Serious violations (intentional data breaches, sharing credentials) will be referred to legal counsel and may result in criminal prosecution.
+Contact
+For security questions or to report an incident, contact security@acmecorp.com or call ext. 5555.
+Code of Conduct Policy
+Overview
+Acme Corp is committed to maintaining a respectful, inclusive, and professional workplace. This Code of Conduct applies to all employees, contractors, and partners in all work-related settings, including the office, remote work environments, business travel, and company events.
+Core Values
+All employees are expected to embody Acme Corp's core values:
+•
+Integrity: Act honestly and transparently in all interactions.
+•
+Respect: Treat every person with dignity regardless of their role, background, or identity.
+•
+Accountability: Take ownership of your work and its outcomes.
+•
+Collaboration: Work constructively with colleagues, clients, and partners.
+•
+Excellence: Strive for high-quality work and continuous improvement.
+Professional Behavior
+Employees are expected to:
+•
+Communicate respectfully in all written and verbal communications.
+•
+Meet deadlines and commitments, or proactively communicate delays.
+•
+Maintain confidentiality of sensitive company, client, and colleague information.
+•
+Dress appropriately for their work environment (see Dress Code Policy).
+•
+Represent Acme Corp professionally when interacting with clients, partners, and the public.
+Anti-Harassment Policy
+Acme Corp has zero tolerance for harassment of any kind, including:
+•
+Sexual harassment (unwanted advances, inappropriate comments, or touching)
+•
+Bullying or intimidation
+•
+Discrimination based on race, gender, age, religion, nationality, disability, sexual orientation, or any other protected characteristic
+•
+Hostile or threatening behavior
+•
+Retaliation against anyone who reports harassment or participates in an investigation
+Harassment includes conduct in person, over email, in chat platforms (Slack), on social media, and at company events.
+Reporting Violations
+•
+Employees who experience or witness a Code of Conduct violation should report it to their manager, HR, or via the anonymous Ethics Hotline at ethics.acmecorp.com.
+•
+All reports will be investigated promptly and confidentially.
+•
+Retaliation against any employee who makes a good-faith report is strictly prohibited and is itself a violation of this policy.
+Conflict of Interest
+•
+Employees must disclose any personal, financial, or professional relationships that could create a conflict of interest with their duties at Acme Corp.
+•
+Employees must not make purchasing decisions, hiring decisions, or business arrangements that personally benefit themselves, family members, or close associates.
+•
+Conflicts of interest must be disclosed in writing to HR and the employee's manager.
+Gifts and Entertainment
+•
+Employees may accept gifts from clients or vendors valued at no more than $50.
+•
+Gifts exceeding $50 must be disclosed to HR and either returned or donated to charity.
+•
+Employees must not solicit gifts or entertainment from clients or vendors.
+•
+Cash gifts of any amount are never permitted.
+Social Media
+•
+Employees must not share confidential company information, client data, or unreleased product information on social media.
+•
+Employees must not make statements on social media that could damage Acme Corp's reputation.
+•
+Employees who wish to post publicly about Acme Corp should include a disclaimer that their views are their own.
+•
+The Communications team manages all official Acme Corp social media accounts.
+Disciplinary Actions
+Violations of this Code of Conduct may result in:
+•
+Verbal or written warning
+•
+Performance improvement plan
+•
+Suspension without pay
+•
+Termination of employment
+•
+Legal action where applicable
+The severity of the action will depend on the nature and seriousness of the violation.
+Contact
+To report a concern or ask questions about the Code of Conduct, contact hr@acmecorp.com or use the anonymous Ethics Hotline at ethics.acmecorp.com.
+Paid Time Off (PTO) & Vacation Policy
+Overview
+This policy outlines the Paid Time Off (PTO) and vacation entitlements for all full-time and part-time employees at Acme Corp.
+Eligibility
+•
+All full-time employees (working 40 hours/week) are eligible for PTO starting from their first day of employment.
+•
+Part-time employees (working 20–39 hours/week) receive prorated PTO based on hours worked.
+•
+Contractors and temporary staff are not eligible for PTO under this policy.
+PTO Accrual
+•
+Year 1–2: Employees accrue 15 days (120 hours) of PTO per year, at a rate of 1.25 days per month.
+•
+Year 3–5: Employees accrue 18 days (144 hours) of PTO per year, at a rate of 1.5 days per month.
+•
+Year 6+: Employees accrue 22 days (176 hours) of PTO per year, at a rate of approximately 1.83 days per month.
+•
+PTO begins accruing from the employee's first day of work.
+Vacation Requests
+•
+Employees must submit vacation requests at least 5 business days in advance for requests of 1–3 days.
+•
+Requests of 4 or more consecutive days must be submitted at least 2 weeks in advance.
+•
+Requests must be submitted through the HR portal and approved by the direct manager.
+•
+Approval is subject to business needs and team availability.
+PTO Carryover
+•
+Employees may carry over a maximum of 10 unused PTO days into the next calendar year.
+•
+Any unused PTO exceeding 10 days will be forfeited at the end of the calendar year (December 31).
+•
+There is no cash payout for forfeited PTO days.
+PTO Payout on Termination
+•
+Upon voluntary resignation with at least 2 weeks' notice, employees will be paid out for all accrued but unused PTO.
+•
+Employees terminated for cause will not receive a PTO payout.
+•
+PTO payout is calculated based on the employee's current hourly rate.
+Sick Days
+•
+Sick leave is separate from PTO. Employees receive 10 sick days per calendar year.
+•
+Sick days do not accrue and do not carry over to the next year.
+•
+Employees must notify their manager before 9:00 AM on the day of their absence.
+•
+A doctor's note may be required for absences exceeding 3 consecutive sick days.
+Public Holidays
+•
+Employees are entitled to all 11 federal public holidays as paid days off.
+•
+If a public holiday falls on a weekend, the nearest weekday will be observed.
+Unpaid Leave
+•
+Employees who have exhausted their PTO may request unpaid leave, subject to manager and HR approval.
+•
+Unpaid leave requests must be submitted in writing to HR at least 1 week in advance.
+Contact
+For questions about PTO balances or requests, contact hr@acmecorp.com or visit the HR portal.
+Performance Review & Promotion Policy
+Overview
+Acme Corp conducts regular performance reviews to support employee growth, align individual goals with company objectives, and determine compensation adjustments and promotions.
+Review Cycles
+•
+Annual Review: Conducted in December each year for all employees. Results take effect January 1 of the following year.
+•
+Mid-Year Check-In: Conducted in June as an informal progress review. Not tied to compensation changes.
+•
+Probationary Review: New employees receive a formal review at the end of their 90-day probationary period.
+•
+Off-Cycle Reviews: May be conducted at any time to address performance issues or exceptional contributions.
+Review Process
+1.
+Self-Assessment: Employee completes a self-evaluation form in the HR portal at least 2 weeks before the scheduled review meeting.
+2.
+Manager Assessment: Direct manager completes an evaluation of the employee based on goals, competencies, and overall performance.
+3.
+Peer Feedback (optional): For senior roles (Level 4+), 360-degree peer feedback may be collected.
+4.
+Review Meeting: Manager and employee meet to discuss the evaluation, feedback, and goals for the coming year.
+5.
+HR Review: HR reviews all performance ratings for calibration and consistency across teams.
+6.
+Outcome Communication: Final ratings and any compensation changes are communicated by January 15.
+Performance Ratings
+Rating
+Description
+5 – Exceptional
+Consistently exceeds all expectations; significant impact beyond the role
+4 – Exceeds Expectations
+Regularly surpasses goals; strong contributor
+3 – Meets Expectations
+Reliably meets all goals; solid performance
+2 – Needs Improvement
+Partially meets expectations; improvement required
+1 – Unsatisfactory
+Fails to meet core expectations; immediate action required
+Compensation Adjustments
+•
+Employees rated 3 (Meets Expectations) are eligible for a cost-of-living adjustment (COLA) of up to 3%.
+•
+Employees rated 4 (Exceeds Expectations) are eligible for a merit increase of 3–6%.
+•
+Employees rated 5 (Exceptional) are eligible for a merit increase of 6–10% and may be considered for a spot bonus.
+•
+Employees rated 1 or 2 are not eligible for a salary increase and may be placed on a Performance Improvement Plan (PIP).
+Performance Improvement Plan (PIP)
+•
+A PIP is issued when an employee receives a rating of 1 or 2, or when ongoing performance issues are identified outside of review cycles.
+•
+The PIP outlines specific, measurable improvement goals and a timeline of 30, 60, or 90 days.
+•
+A follow-up review is conducted at the end of the PIP period.
+•
+Failure to meet PIP goals may result in further disciplinary action, including termination.
+Promotions
+•
+Promotions are based on demonstrated performance, readiness, and business need.
+•
+Employees are typically eligible for promotion after 12 months in their current role.
+•
+Managers may nominate employees for promotion during the annual review cycle.
+•
+All promotions above Level 5 require approval from VP-level management and HR.
+•
+Promotions typically include a title change and a salary increase of 10–20% depending on the level.
+Goal Setting
+•
+Employees and managers must set 3–5 SMART goals at the beginning of each year.
+•
+Goals must be entered into the HR portal by January 31.
+•
+Goals are reviewed and updated at the mid-year check-in if business priorities change.
+Contact
+For questions about performance reviews or promotions, contact hr@acmecorp.com.
+Employee Onboarding Policy
+Overview
+This policy describes the onboarding process for all new employees joining Acme Corp. A structured onboarding experience ensures new hires are set up for success from day one.
+Before the First Day (Pre-Boarding)
+•
+HR will send a welcome email within 24 hours of the signed offer letter, including:
+o
+New hire paperwork (tax forms, direct deposit setup, benefits enrollment)
+o
+IT setup instructions and equipment delivery tracking
+o
+First-day schedule and manager contact information
+o
+Access to the Acme Corp Employee Handbook
+•
+New hires must complete all paperwork at least 3 business days before their start date.
+•
+IT will provision accounts (email, Slack, HR portal) 1 business day before the start date.
+•
+A company laptop will be shipped to remote employees or available for pickup at the office for in-office employees.
+Day One
+•
+New employees report to reception (or join a video onboarding call if remote) at 9:00 AM.
+•
+HR will conduct a 1-hour orientation covering:
+o
+Company overview, mission, and values
+o
+Key policies (this document, Code of Conduct, IT Security, PTO)
+o
+Benefits enrollment walkthrough
+o
+HR portal and expense portal access
+•
+IT will conduct a 30-minute device setup session.
+•
+The direct manager will introduce the new hire to the immediate team.
+•
+A buddy (peer mentor) will be assigned to help the new hire navigate their first 30 days.
+First Week
+•
+The manager will schedule daily 15-minute check-ins for the first week.
+•
+New hires should complete all mandatory training modules in the Learning Management System (LMS) within their first 5 business days. Required modules include:
+o
+Code of Conduct Training
+o
+IT Security Awareness Training
+o
+Data Privacy Training
+o
+Workplace Safety Training
+•
+The new hire will attend team meetings and be introduced to cross-functional stakeholders.
+•
+HR will check in at the end of Week 1 to answer any questions.
+First 30 Days
+•
+Manager and new hire will set 30-day onboarding goals during the first week.
+•
+New hire should complete all role-specific technical onboarding (tools, systems, processes).
+•
+New hire attends a New Employee Welcome session hosted by the CEO (held monthly).
+•
+Buddy check-ins happen at least twice per week.
+First 90 Days (Probationary Period)
+•
+New employees are on a 90-day probationary period.
+•
+During this period, either the employee or Acme Corp may end the employment relationship with 1 week's notice (instead of the standard 2 weeks).
+•
+At the end of 90 days, the manager conducts a formal probationary review.
+•
+Successful completion of probation grants full employee status and access to all benefits.
+Benefits Enrollment
+•
+New employees must enroll in health, dental, and vision insurance within 30 days of their start date.
+•
+Enrollment after 30 days is only permitted during the annual Open Enrollment period (November each year) or after a qualifying life event (marriage, birth of a child, etc.).
+•
+401(k) enrollment is available immediately; company matching begins after 90 days of employment.
+Required Documentation
+New employees must provide the following within their first day:
+•
+Government-issued photo ID
+•
+Social Security card or equivalent tax documentation
+•
+Work authorization documentation (for non-US citizens)
+•
+Signed copy of the Confidentiality and IP Assignment Agreement
+Remote Employee Onboarding
+•
+Remote new hires follow the same process via video calls and digital document signing.
+•
+Equipment will be shipped and must arrive before the start date. Contact IT at it@acmecorp.com if equipment is delayed.
+•
+Remote new hires are encouraged to visit the office within their first 60 days for an in-person team introduction.
+Contact
+For onboarding questions, contact hr@acmecorp.com or your assigned HR Business Partner.
+Parental Leave Policy
+Overview
+Acme Corp is committed to supporting employees during one of life's most significant milestones. This policy outlines paid and unpaid leave entitlements for employees welcoming a new child through birth, adoption, or foster placement.
+Eligibility
+•
+All full-time employees who have completed at least 12 months of continuous employment are eligible for paid parental leave.
+•
+Employees with less than 12 months of service are eligible for unpaid parental leave only, in accordance with applicable law (e.g., FMLA in the US).
+•
+Part-time employees working 20+ hours/week are eligible for prorated paid leave.
+Paid Parental Leave Entitlement
+Primary Caregiver (Birthing Parent or Designated Primary Caregiver)
+•
+16 weeks of fully paid parental leave.
+•
+Leave may begin up to 2 weeks before the expected due date.
+•
+Pay during leave is 100% of the employee's base salary.
+Secondary Caregiver (Non-Birthing Parent, Co-Parent, or Partner)
+•
+6 weeks of fully paid parental leave.
+•
+Leave must begin within 6 months of the child's birth, adoption, or placement.
+Adoption and Foster Placement
+•
+Primary caregivers adopting or fostering a child under age 18 receive 12 weeks of fully paid leave.
+•
+Secondary caregivers receive 6 weeks of fully paid leave.
+•
+Leave must begin within 30 days of the child's placement.
+Additional Unpaid Leave
+•
+After exhausting paid parental leave, employees may take up to an additional 12 weeks of unpaid leave.
+•
+Total parental leave (paid + unpaid) may not exceed 28 weeks for primary caregivers or 18 weeks for secondary caregivers.
+Notice Requirements
+•
+Employees must notify HR and their manager of their intent to take parental leave at least 30 days before the expected start date.
+•
+In cases of early birth or emergency placement, notification must occur as soon as reasonably possible.
+•
+Notice must be provided in writing via the HR portal.
+Job Protection
+•
+Employees returning from parental leave within the paid leave period are guaranteed to return to their same or equivalent role at the same salary.
+•
+Employees taking extended unpaid leave beyond the paid period are subject to role availability, but Acme Corp will make reasonable efforts to return them to an equivalent position.
+Benefits Continuation
+•
+Health, dental, and vision insurance coverage continues during paid parental leave at the same employee contribution rates.
+•
+401(k) contributions by the company continue during paid leave.
+•
+PTO does not accrue during unpaid leave periods.
+Returning to Work
+•
+Employees must confirm their return-to-work date with HR at least 2 weeks in advance.
+•
+A phased return-to-work schedule (e.g., starting at 60% capacity for 2 weeks) may be arranged with manager and HR approval.
+•
+Employees who do not return after parental leave may be required to repay a prorated portion of the paid leave received, as outlined in their parental leave agreement.
+Interaction with Other Leave
+•
+Parental leave runs concurrently with FMLA (Family and Medical Leave Act) leave where applicable.
+•
+Employees may not use PTO to extend their parental leave period beyond the maximums stated in this policy.
+Confidentiality
+All parental leave requests and related medical information are kept strictly confidential and shared only with HR and relevant managers on a need-to-know basis.
+Contact
+To initiate a parental leave request, contact hr@acmecorp.com or your assigned HR Business Partner.
+Attendance & Punctuality Policy
+Overview
+Regular attendance and punctuality are essential to maintaining productivity and a collaborative work environment at Acme Corp. This policy outlines expectations for attendance and the procedures for reporting and managing absences.
+Core Hours
+•
+Standard office hours are 9:00 AM to 5:00 PM, Monday through Friday, in the employee's local time zone.
+•
+Core collaboration hours (when all employees must be available) are 10:00 AM to 3:00 PM.
+•
+Employees with flexible or remote work arrangements must still be reachable during core hours.
+Attendance Expectations
+•
+Employees are expected to be at their workstation and ready to work at the start of their scheduled shift.
+•
+Tardiness is defined as arriving more than 10 minutes after the scheduled start time.
+•
+Excessive tardiness (3 or more instances in a 30-day period) will result in a formal warning.
+•
+Employees are expected to work their full contracted hours each week. Leaving early without approval counts as an absence.
+Reporting an Absence
+•
+Employees must notify their direct manager of any unplanned absence before 9:00 AM on the day of the absence, via phone call or Slack message.
+•
+Email alone is not sufficient for unplanned absences.
+•
+For planned absences, PTO must be submitted and approved in advance via the HR portal.
+•
+Failure to report an absence without notification is considered a no-call/no-show and may result in disciplinary action.
+Types of Absences
+Excused Absences
+The following absences are considered excused when properly reported:
+•
+Approved PTO or vacation
+•
+Sick leave (with notification by 9:00 AM)
+•
+Approved parental, bereavement, or jury duty leave
+•
+Medical appointments (employees should try to schedule outside core hours when possible)
+•
+Company-approved remote work days
+Unexcused Absences
+The following are considered unexcused:
+•
+No-call/no-show (absent without notification)
+•
+Tardiness not communicated in advance
+•
+Leaving early without manager approval
+•
+Exhausting all sick days and continuing to take unplanned sick leave
+Sick Leave
+•
+Employees receive 10 sick days per calendar year (separate from PTO).
+•
+Sick days reset on January 1 and do not carry over.
+•
+Employees absent for more than 3 consecutive days due to illness must provide a doctor's note upon return.
+•
+Sick leave may not be used for non-illness personal days (use PTO for that purpose).
+Bereavement Leave
+•
+Employees receive 5 paid bereavement days for the death of an immediate family member (spouse, child, parent, sibling).
+•
+3 paid bereavement days for the death of an extended family member (grandparent, aunt, uncle, in-law).
+•
+1 paid day for the death of a close friend or colleague, subject to manager approval.
+•
+Additional unpaid leave may be requested and is subject to manager and HR approval.
+Jury Duty
+•
+Employees called for jury duty will receive their full pay for up to 15 business days.
+•
+Employees must provide a copy of the jury summons to HR as soon as it is received.
+•
+If jury duty extends beyond 15 days, the employee may use PTO or request unpaid leave.
+Attendance Tracking
+•
+Attendance is tracked through the HR portal time-keeping system.
+•
+Managers are responsible for reviewing and approving weekly timesheets by noon on Monday for the previous week.
+•
+Discrepancies must be reported to HR within 5 business days.
+Disciplinary Process for Attendance Issues
+Occurrence
+Action
+1st unexcused absence or 3 tardiness instances
+Verbal warning from manager
+2nd unexcused absence within 90 days
+Written warning, placed in personnel file
+3rd unexcused absence within 90 days
+Final written warning or suspension
+4th unexcused absence within 90 days
+Termination
+Managers have discretion to consider circumstances and escalate or de-escalate as appropriate.
+Contact
+For attendance questions or to submit a leave request, contact hr@acmecorp.com or log in to the HR portal.
+Public Holidays & Company Holidays Policy
+Overview
+This policy lists the official paid public holidays observed by Acme Corp. All full-time employees receive these days as paid time off. Part-time employees receive prorated holiday pay based on their scheduled hours.
+Observed Public Holidays (United States)
+Acme Corp observes the following 11 federal holidays each calendar year:
+Holiday
+Date
+New Year's Day
+January 1
+Martin Luther King Jr. Day
+Third Monday in January
+Presidents' Day
+Third Monday in February
+Memorial Day
+Last Monday in May
+Juneteenth National Independence Day
+June 19
+Independence Day
+July 4
+Labor Day
+First Monday in September
+Columbus Day / Indigenous Peoples' Day
+Second Monday in October
+Veterans Day
+November 11
+Thanksgiving Day
+Fourth Thursday in November
+Christmas Day
+December 25
+Weekend Observance
+•
+If a holiday falls on a Saturday, it will be observed on the preceding Friday.
+•
+If a holiday falls on a Sunday, it will be observed on the following Monday.
+Floating Holidays
+•
+Each employee receives 2 floating holidays per calendar year in addition to the standard public holidays.
+•
+Floating holidays can be used on any day the employee chooses, subject to manager approval.
+•
+Floating holidays must be used within the calendar year and do not carry over.
+•
+Floating holidays are available from January 1 of each year.
+Additional Company Holidays
+In addition to federal holidays, Acme Corp observes the following company-wide days off:
+•
+Day after Thanksgiving (Friday following Thanksgiving Thursday)
+•
+Christmas Eve (December 24)
+•
+End-of-Year Break: December 26 through December 31 (employees do not need to use PTO for these days)
+This gives employees a full week off at the end of December each year.
+Holiday Pay
+•
+Full-time employees receive their regular daily rate of pay for each observed holiday.
+•
+Employees who are required to work on a public holiday will receive 1.5× their regular hourly rate for hours worked on that day, plus the holiday may be rescheduled at a later date with manager approval.
+Part-Time Employees
+•
+Part-time employees who are regularly scheduled to work on the day a holiday falls will receive holiday pay for their normally scheduled hours.
+•
+Part-time employees not scheduled to work on a holiday do not receive holiday pay for that day.
+New Employees
+•
+New employees are eligible for holiday pay from their first day of employment.
+•
+There is no waiting period for holiday entitlement.
+International Employees
+•
+Employees based outside the United States follow the public holiday calendar for their country of employment.
+•
+International employees should refer to their local addendum or contact HR for their specific holiday schedule.
+Contact
+For questions about holiday schedules or holiday pay, contact hr@acmecorp.com.
