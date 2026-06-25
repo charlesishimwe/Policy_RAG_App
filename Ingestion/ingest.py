@@ -1,4 +1,3 @@
-"""
 ingest.py — Load your policy documents into ChromaDB
 
 Supports: .txt, .md, .pdf, .html files
