@@ -12,32 +12,53 @@ CHUNK_SIZE        = 500                # characters per chunk
 CHUNK_OVERLAP     = 50                 # overlap between chunks
 
 
-# ── Text extraction ───────────────────────────────────────────────────────────
+# ── Text extraction (no pypdf needed) ────────────────────────────────────────
 def extract_text(filepath: str) -> str:
     ext = os.path.splitext(filepath)[1].lower()
 
+    # Plain text and markdown — works perfectly, no library needed
     if ext in (".txt", ".md"):
         with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
             return f.read()
 
-    elif ext == ".pdf":
-        try:
-            import pypdf
-            reader = pypdf.PdfReader(filepath)
-            return "\n".join(page.extract_text() or "" for page in reader.pages)
-        except ImportError:
-            print("  pypdf not installed. Run: pip install pypdf")
-            return ""
-
+    # HTML — uses only Python's built-in html.parser, no beautifulsoup needed
     elif ext in (".html", ".htm"):
-        try:
-            from bs4 import BeautifulSoup
-            with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
-                soup = BeautifulSoup(f.read(), "html.parser")
-            return soup.get_text(separator="\n")
-        except ImportError:
-            print("  beautifulsoup4 not installed. Run: pip install beautifulsoup4")
-            return ""
+        import html
+        from html.parser import HTMLParser
+
+        class TextExtractor(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.texts = []
+                self._skip = False
+
+            def handle_starttag(self, tag, attrs):
+                if tag in ("script", "style"):
+                    self._skip = True
+
+            def handle_endtag(self, tag):
+                if tag in ("script", "style"):
+                    self._skip = False
+
+            def handle_data(self, data):
+                if not self._skip:
+                    stripped = data.strip()
+                    if stripped:
+                        self.texts.append(stripped)
+
+        with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+            raw = f.read()
+
+        parser = TextExtractor()
+        parser.feed(raw)
+        return "\n".join(parser.texts)
+
+    # PDF — skip gracefully with a helpful message
+    elif ext == ".pdf":
+        print(f"  ⚠️  Skipping PDF file: {os.path.basename(filepath)}")
+        print("     Convert it to .txt or .md to include it.")
+        print("     (Tip: open the PDF, select all text, paste into a .txt file)")
+        return ""
 
     else:
         print(f"  Skipping unsupported file type: {ext}")
