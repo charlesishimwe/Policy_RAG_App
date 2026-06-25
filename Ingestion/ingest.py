@@ -1,12 +1,3 @@
-ingest.py — Load your policy documents into ChromaDB
-
-Supports: .txt, .md, .pdf, .html files
-Place your policy files in the ./policies/ folder, then run:
-  python ingest.py
-
-Run this ONCE before starting app.py (or re-run to refresh the database).
-"""
-
 import os
 import re
 import chromadb
