@@ -10,7 +10,6 @@ import streamlit as st
 from dotenv import load_dotenv
 import chromadb
 from chromadb.config import Settings
-from langchain.retrievers.document_compressors import LLMListCompressor
 from langchain_community.retrievers import BM25Retriever
 from langchain.retrievers import EnsembleRetriever
 from langchain_text_splitters import RecursiveCharacterTextSplitter
