@@ -1,33 +1,48 @@
 """
-Policy RAG Copilot
-Document Ingestion and ChromaDB Indexing
+Policy RAG - Production Ingestion Service
 
-This script:
-1. Reads policy documents from ./policies
-2. Extracts text from PDF, TXT and Markdown files
-3. Cleans the extracted text
-4. Splits documents into overlapping chunks
-5. Generates embeddings using SentenceTransformers
-6. Stores chunks + embeddings + metadata in ChromaDB
+Purpose:
+    - Read PDF / TXT / MD / HTML policy documents
+    - Clean and chunk text
+    - Generate embeddings with Sentence Transformers
+    - Store vectors in ChromaDB
+    - Avoid duplicate ingestion
+    - Detect changed documents and re-index them
+    - Run continuously / safely for long periods
+    - Recover from transient errors
+    - Provide useful logging
 
-The configuration MUST match app.py:
-    CHROMA_PATH = "chroma_db"
-    COLLECTION_NAME = "policy_docs"
-    EMBED_MODEL_NAME = "all-MiniLM-L6-v2"
+Run once:
+    python ingest.py
+
+Run continuously:
+    python ingest.py --watch
+
+Force complete rebuild:
+    python ingest.py --reset
+
+Continuous rebuild every N seconds:
+    python ingest.py --watch --interval 3600
 """
 
-from pathlib import Path
+from __future__ import annotations
+
+import argparse
 import hashlib
-import re
+import logging
+import os
+import shutil
+import signal
 import sys
+import tempfile
+import time
+from pathlib import Path
+from typing import Dict, List, Tuple
 
 import chromadb
+from bs4 import BeautifulSoup
+from pypdf import PdfReader
 from sentence_transformers import SentenceTransformer
-
-try:
-    from pypdf import PdfReader
-except ImportError:
-    PdfReader = None
 
 
 # ============================================================
@@ -36,48 +51,101 @@ except ImportError:
 
 BASE_DIR = Path(__file__).resolve().parent
 
-DATA_PATH = BASE_DIR / "policies"
+POLICIES_DIR = BASE_DIR / "policies"
 
-CHROMA_PATH = BASE_DIR / "chroma_db"
+# IMPORTANT:
+# This is the database used by the application.
+CHROMA_DIR = BASE_DIR / "chroma_db"
 
 COLLECTION_NAME = "policy_docs"
 
-EMBED_MODEL_NAME = "all-MiniLM-L6-v2"
+EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
 
-# Chunk configuration
 CHUNK_SIZE = 800
 CHUNK_OVERLAP = 150
 
-# Batch size for ChromaDB
-BATCH_SIZE = 64
-
-# Supported file types
 SUPPORTED_EXTENSIONS = {
     ".pdf",
     ".txt",
     ".md",
+    ".html",
+    ".htm",
 }
 
+# Number of documents processed in one batch
+EMBED_BATCH_SIZE = 32
+
+# Chroma insertion batch
+CHROMA_BATCH_SIZE = 100
+
+# For continuous mode
+DEFAULT_WATCH_INTERVAL = 300  # 5 minutes
+
+# Maximum retry delay
+MAX_RETRY_DELAY = 300
+
 
 # ============================================================
-# LOGGING HELPERS
+# LOGGING
 # ============================================================
 
-def print_header():
-    print()
-    print("=" * 70)
-    print("POLICY RAG COPILOT - DOCUMENT INGESTION")
-    print("=" * 70)
-    print()
-    print(f"Documents : {DATA_PATH}")
-    print(f"ChromaDB  : {CHROMA_PATH}")
-    print(f"Collection: {COLLECTION_NAME}")
-    print(f"Embedding : {EMBED_MODEL_NAME}")
-    print(f"Chunk size: {CHUNK_SIZE}")
-    print(f"Overlap   : {CHUNK_OVERLAP}")
-    print()
-    print("=" * 70)
-    print()
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+)
+
+logger = logging.getLogger("policy-rag-ingest")
+
+
+# ============================================================
+# GLOBAL STATE
+# ============================================================
+
+STOP_REQUESTED = False
+
+
+# ============================================================
+# SIGNAL HANDLING
+# ============================================================
+
+def handle_shutdown(signum, frame):
+    global STOP_REQUESTED
+
+    logger.info(
+        "Shutdown signal received (%s). Finishing current operation...",
+        signum,
+    )
+
+    STOP_REQUESTED = True
+
+
+signal.signal(signal.SIGINT, handle_shutdown)
+signal.signal(signal.SIGTERM, handle_shutdown)
+
+
+# ============================================================
+# FILE HASH
+# ============================================================
+
+def calculate_file_hash(path: Path) -> str:
+    """
+    Generate SHA256 hash for a file.
+
+    This allows us to detect whether a document changed.
+    """
+
+    sha256 = hashlib.sha256()
+
+    with path.open("rb") as file:
+        while True:
+            chunk = file.read(1024 * 1024)
+
+            if not chunk:
+                break
+
+            sha256.update(chunk)
+
+    return sha256.hexdigest()
 
 
 # ============================================================
@@ -86,132 +154,134 @@ def print_header():
 
 def clean_text(text: str) -> str:
     """
-    Clean extracted document text while preserving useful
-    paragraph and sentence structure.
+    Normalize whitespace while preserving readable text.
     """
 
     if not text:
         return ""
 
-    # Normalize line endings
-    text = text.replace("\r\n", "\n")
-    text = text.replace("\r", "\n")
-
-    # Remove null characters
     text = text.replace("\x00", " ")
 
-    # Remove excessive spaces
-    text = re.sub(r"[ \t]+", " ", text)
+    lines = []
 
-    # Normalize excessive blank lines
-    text = re.sub(r"\n{3,}", "\n\n", text)
+    for line in text.splitlines():
 
-    # Remove spaces before/after newlines
-    text = re.sub(r" *\n *", "\n", text)
+        line = " ".join(line.split())
 
-    return text.strip()
+        if line:
+            lines.append(line)
+
+    return "\n".join(lines).strip()
 
 
 # ============================================================
-# PDF EXTRACTION
+# FILE EXTRACTION
 # ============================================================
 
-def extract_pdf(file_path: Path) -> str:
+def read_pdf(path: Path) -> str:
     """
-    Extract text from a PDF file.
+    Extract text from PDF.
     """
 
-    if PdfReader is None:
-        raise RuntimeError(
-            "pypdf is not installed. "
-            "Install it with: pip install pypdf"
-        )
+    reader = PdfReader(str(path))
 
-    text_parts = []
+    pages = []
 
-    try:
-        reader = PdfReader(str(file_path))
+    for page_number, page in enumerate(reader.pages, start=1):
 
-        for page_number, page in enumerate(
-            reader.pages,
-            start=1,
-        ):
+        try:
+            text = page.extract_text() or ""
 
-            try:
-                page_text = page.extract_text()
-
-            except Exception as exc:
-                print(
-                    f"  Warning: could not read page "
-                    f"{page_number}: {exc}"
+            if text.strip():
+                pages.append(
+                    f"[Page {page_number}]\n{text}"
                 )
-                continue
 
-            if page_text:
-                text_parts.append(page_text)
+        except Exception as exc:
 
-    except Exception as exc:
+            logger.warning(
+                "Could not read page %s from %s: %s",
+                page_number,
+                path.name,
+                exc,
+            )
 
-        raise RuntimeError(
-            f"Failed to read PDF '{file_path.name}': {exc}"
-        ) from exc
-
-    return "\n\n".join(text_parts)
+    return "\n\n".join(pages)
 
 
-# ============================================================
-# TEXT / MARKDOWN EXTRACTION
-# ============================================================
-
-def extract_text_file(file_path: Path) -> str:
+def read_text_file(path: Path) -> str:
     """
-    Read TXT or Markdown files.
+    Read TXT / MD files using several common encodings.
     """
 
     encodings = [
         "utf-8",
         "utf-8-sig",
         "latin-1",
+        "cp1252",
     ]
-
-    last_error = None
 
     for encoding in encodings:
 
         try:
 
-            return file_path.read_text(
+            return path.read_text(
                 encoding=encoding
             )
 
-        except UnicodeDecodeError as exc:
+        except UnicodeDecodeError:
+            continue
 
-            last_error = exc
-
-    raise RuntimeError(
-        f"Could not decode '{file_path.name}': "
-        f"{last_error}"
+    raise UnicodeDecodeError(
+        "unknown",
+        b"",
+        0,
+        1,
+        f"Unable to decode {path}",
     )
 
 
-# ============================================================
-# DOCUMENT EXTRACTION
-# ============================================================
+def read_html(path: Path) -> str:
+    """
+    Extract readable text from HTML.
+    """
 
-def extract_document(file_path: Path) -> str:
+    raw_html = read_text_file(path)
+
+    soup = BeautifulSoup(
+        raw_html,
+        "html.parser",
+    )
+
+    for element in soup(
+        [
+            "script",
+            "style",
+            "noscript",
+        ]
+    ):
+        element.decompose()
+
+    return soup.get_text(
+        separator="\n"
+    )
+
+
+def extract_text(path: Path) -> str:
     """
     Extract text based on file extension.
     """
 
-    extension = file_path.suffix.lower()
+    extension = path.suffix.lower()
 
     if extension == ".pdf":
-
-        return extract_pdf(file_path)
+        return read_pdf(path)
 
     if extension in {".txt", ".md"}:
+        return read_text_file(path)
 
-        return extract_text_file(file_path)
+    if extension in {".html", ".htm"}:
+        return read_html(path)
 
     raise ValueError(
         f"Unsupported file type: {extension}"
@@ -226,13 +296,7 @@ def split_text(
     text: str,
     chunk_size: int = CHUNK_SIZE,
     overlap: int = CHUNK_OVERLAP,
-):
-    """
-    Split text into overlapping chunks.
-
-    The implementation tries to split at natural boundaries
-    such as paragraphs, sentences and spaces.
-    """
+) -> List[str]:
 
     if not text:
         return []
@@ -241,11 +305,6 @@ def split_text(
         raise ValueError(
             "CHUNK_OVERLAP must be smaller than CHUNK_SIZE."
         )
-
-    text = text.strip()
-
-    if len(text) <= chunk_size:
-        return [text]
 
     chunks = []
 
@@ -259,44 +318,6 @@ def split_text(
             text_length,
         )
 
-        # If this is not the final chunk,
-        # try to find a natural break.
-        if end < text_length:
-
-            search_start = start + int(
-                chunk_size * 0.60
-            )
-
-            candidate_breaks = [
-                text.rfind("\n\n", search_start, end),
-                text.rfind(". ", search_start, end),
-                text.rfind("? ", search_start, end),
-                text.rfind("! ", search_start, end),
-                text.rfind("; ", search_start, end),
-                text.rfind(", ", search_start, end),
-                text.rfind(" ", search_start, end),
-            ]
-
-            valid_breaks = [
-                position
-                for position in candidate_breaks
-                if position > start
-            ]
-
-            if valid_breaks:
-
-                end = max(valid_breaks)
-
-                # Keep punctuation when possible.
-                if text[end:end + 2] in {
-                    ". ",
-                    "? ",
-                    "! ",
-                    "; ",
-                }:
-
-                    end += 1
-
         chunk = text[start:end].strip()
 
         if chunk:
@@ -305,166 +326,84 @@ def split_text(
         if end >= text_length:
             break
 
-        next_start = end - overlap
-
-        if next_start <= start:
-            next_start = end
-
-        start = next_start
+        start = end - overlap
 
     return chunks
 
 
 # ============================================================
-# FILE HASH
+# DOCUMENT DISCOVERY
 # ============================================================
 
-def calculate_file_hash(file_path: Path) -> str:
+def discover_documents() -> List[Path]:
     """
-    Calculate SHA-256 hash of a source file.
-
-    This is used to create deterministic document IDs.
+    Find all supported documents inside policies/.
     """
 
-    sha256 = hashlib.sha256()
+    if not POLICIES_DIR.exists():
 
-    with file_path.open("rb") as file:
-
-        while True:
-
-            data = file.read(1024 * 1024)
-
-            if not data:
-                break
-
-            sha256.update(data)
-
-    return sha256.hexdigest()
-
-
-# ============================================================
-# CHUNK ID
-# ============================================================
-
-def create_chunk_id(
-    source_name: str,
-    file_hash: str,
-    chunk_index: int,
-) -> str:
-    """
-    Create deterministic unique IDs.
-
-    Example:
-        employee_policy_abc123_chunk_0001
-    """
-
-    safe_name = re.sub(
-        r"[^a-zA-Z0-9_-]+",
-        "_",
-        source_name,
-    )
-
-    return (
-        f"{safe_name}_"
-        f"{file_hash[:12]}_"
-        f"chunk_{chunk_index:04d}"
-    )
-
-
-# ============================================================
-# LOAD EMBEDDING MODEL
-# ============================================================
-
-def load_embedding_model():
-    """
-    Load the local free SentenceTransformer model.
-    """
-
-    print(
-        f"Loading embedding model: "
-        f"{EMBED_MODEL_NAME}"
-    )
-
-    model = SentenceTransformer(
-        EMBED_MODEL_NAME
-    )
-
-    print("Embedding model loaded.")
-    print()
-
-    return model
-
-
-# ============================================================
-# FIND DOCUMENTS
-# ============================================================
-
-def find_documents():
-    """
-    Find all supported policy documents.
-    """
-
-    if not DATA_PATH.exists():
-
-        raise FileNotFoundError(
-            f"Policy directory does not exist: "
-            f"{DATA_PATH}\n\n"
-            f"Create the directory and add your policy files."
+        POLICIES_DIR.mkdir(
+            parents=True,
+            exist_ok=True,
         )
 
-    files = []
+        logger.warning(
+            "Policies directory did not exist. "
+            "Created: %s",
+            POLICIES_DIR,
+        )
 
-    for path in DATA_PATH.rglob("*"):
+        return []
+
+    documents = []
+
+    for path in POLICIES_DIR.rglob("*"):
 
         if not path.is_file():
             continue
 
-        if path.suffix.lower() in SUPPORTED_EXTENSIONS:
+        if path.suffix.lower() not in SUPPORTED_EXTENSIONS:
+            continue
 
-            files.append(path)
+        documents.append(path)
 
-    files.sort(
-        key=lambda path: str(path).lower()
-    )
+    documents.sort()
 
-    return files
+    return documents
 
 
 # ============================================================
-# CHROMA CLIENT
+# CHROMADB
 # ============================================================
 
 def create_chroma_client():
-    """
-    Create the ChromaDB persistent client.
 
-    IMPORTANT:
-    Do NOT use chromadb.config.Settings here.
-
-    This exact configuration matches app.py and prevents
-    the "different settings" Chroma error.
-    """
-
-    CHROMA_PATH.mkdir(
+    CHROMA_DIR.mkdir(
         parents=True,
         exist_ok=True,
     )
 
+    logger.info(
+        "Opening ChromaDB: %s",
+        CHROMA_DIR,
+    )
+
+    # IMPORTANT:
+    # Do NOT use Settings(...) here.
+    #
+    # This avoids the ChromaDB configuration error:
+    #
+    # KeyError: '_type'
+    #
+
     client = chromadb.PersistentClient(
-        path=str(CHROMA_PATH)
+        path=str(CHROMA_DIR)
     )
 
     return client
 
 
-# ============================================================
-# GET COLLECTION
-# ============================================================
-
-def get_collection(client):
-    """
-    Get or create the policy collection.
-    """
+def get_or_create_collection(client):
 
     try:
 
@@ -472,273 +411,651 @@ def get_collection(client):
             name=COLLECTION_NAME
         )
 
-        print(
-            f"Using existing collection: "
-            f"{COLLECTION_NAME}"
+        logger.info(
+            "Loaded existing collection: %s",
+            COLLECTION_NAME,
         )
+
+        return collection
 
     except Exception:
 
+        logger.info(
+            "Creating collection: %s",
+            COLLECTION_NAME,
+        )
+
         collection = client.create_collection(
-            name=COLLECTION_NAME
+            name=COLLECTION_NAME,
+            metadata={
+                "hnsw:space": "cosine"
+            },
         )
 
-        print(
-            f"Created collection: "
-            f"{COLLECTION_NAME}"
-        )
-
-    return collection
+        return collection
 
 
 # ============================================================
-# PREPARE DOCUMENTS
+# MODEL
 # ============================================================
 
-def prepare_documents(files):
-    """
-    Extract and chunk all policy documents.
-    """
+def load_embedding_model():
 
-    all_documents = []
-    all_metadatas = []
-    all_ids = []
-
-    successful_files = 0
-    failed_files = 0
-
-    print(
-        f"Found {len(files)} supported document(s)."
+    logger.info(
+        "Loading embedding model: %s",
+        EMBEDDING_MODEL_NAME,
     )
-    print()
 
-    for file_number, file_path in enumerate(
-        files,
-        start=1,
-    ):
+    model = SentenceTransformer(
+        EMBEDDING_MODEL_NAME
+    )
 
-        relative_path = file_path.relative_to(
-            DATA_PATH
+    logger.info(
+        "Embedding model loaded successfully."
+    )
+
+    return model
+
+
+# ============================================================
+# EXISTING DOCUMENT INFORMATION
+# ============================================================
+
+def get_existing_sources(collection) -> Dict[str, Dict]:
+
+    try:
+
+        result = collection.get(
+            include=["metadatas"]
         )
 
-        print(
-            f"[{file_number}/{len(files)}] "
-            f"Processing: {relative_path}"
+    except Exception as exc:
+
+        logger.warning(
+            "Could not read existing Chroma data: %s",
+            exc,
         )
 
-        try:
+        return {}
 
-            raw_text = extract_document(
-                file_path
-            )
+    sources = {}
 
-            text = clean_text(
-                raw_text
-            )
-
-            if not text:
-
-                print(
-                    "  WARNING: No text extracted. "
-                    "Skipping."
-                )
-
-                failed_files += 1
-                continue
-
-            file_hash = calculate_file_hash(
-                file_path
-            )
-
-            chunks = split_text(
-                text
-            )
-
-            if not chunks:
-
-                print(
-                    "  WARNING: No chunks generated. "
-                    "Skipping."
-                )
-
-                failed_files += 1
-                continue
-
-            for chunk_index, chunk in enumerate(
-                chunks
-            ):
-
-                chunk_id = create_chunk_id(
-                    file_path.stem,
-                    file_hash,
-                    chunk_index,
-                )
-
-                all_ids.append(
-                    chunk_id
-                )
-
-                all_documents.append(
-                    chunk
-                )
-
-                all_metadatas.append(
-                    {
-                        "source": file_path.name,
-                        "source_path": str(
-                            relative_path
-                        ),
-                        "chunk_id": chunk_index,
-                        "file_hash": file_hash,
-                        "file_type": (
-                            file_path.suffix.lower()
-                        ),
-                    }
-                )
-
-            print(
-                f"  Extracted characters: "
-                f"{len(text):,}"
-            )
-
-            print(
-                f"  Generated chunks: "
-                f"{len(chunks)}"
-            )
-
-            successful_files += 1
-
-        except Exception as exc:
-
-            print(
-                f"  ERROR: {exc}"
-            )
-
-            failed_files += 1
-
-    print()
-    print(
-        f"Successfully processed: "
-        f"{successful_files}"
+    metadatas = result.get(
+        "metadatas",
+        []
     )
 
-    print(
-        f"Failed/skipped: "
-        f"{failed_files}"
-    )
+    for metadata in metadatas:
 
-    print(
-        f"Total chunks: "
-        f"{len(all_documents)}"
-    )
+        if not metadata:
+            continue
 
-    print()
+        source = metadata.get("source")
 
-    return (
-        all_documents,
-        all_metadatas,
-        all_ids,
-    )
+        if not source:
+            continue
+
+        sources[source] = {
+            "file_hash": metadata.get(
+                "file_hash"
+            )
+        }
+
+    return sources
 
 
 # ============================================================
-# EMBEDDINGS
+# DELETE SOURCE
 # ============================================================
 
-def generate_embeddings(
-    model,
-    documents,
+def delete_source(
+    collection,
+    source: str,
 ):
     """
-    Generate normalized embeddings for all chunks.
+    Delete all chunks belonging to a document.
     """
 
-    if not documents:
-        return []
+    try:
 
-    print(
-        f"Generating embeddings for "
-        f"{len(documents)} chunks..."
+        collection.delete(
+            where={
+                "source": source
+            }
+        )
+
+        logger.info(
+            "Deleted previous chunks for: %s",
+            source,
+        )
+
+    except Exception as exc:
+
+        logger.warning(
+            "Could not delete old chunks for %s: %s",
+            source,
+            exc,
+        )
+
+
+# ============================================================
+# INGEST ONE DOCUMENT
+# ============================================================
+
+def ingest_document(
+    path: Path,
+    collection,
+    embedding_model,
+) -> Tuple[int, str]:
+
+    relative_source = str(
+        path.relative_to(BASE_DIR)
     )
 
-    embeddings = model.encode(
-        documents,
-        batch_size=32,
-        show_progress_bar=True,
+    logger.info(
+        "Processing: %s",
+        relative_source,
+    )
+
+    file_hash = calculate_file_hash(path)
+
+    raw_text = extract_text(path)
+
+    text = clean_text(raw_text)
+
+    if not text:
+
+        logger.warning(
+            "No text extracted from: %s",
+            path.name,
+        )
+
+        return 0, file_hash
+
+    chunks = split_text(text)
+
+    if not chunks:
+
+        logger.warning(
+            "No chunks generated for: %s",
+            path.name,
+        )
+
+        return 0, file_hash
+
+    logger.info(
+        "Generated %d chunks from %s",
+        len(chunks),
+        path.name,
+    )
+
+    # Remove old version first.
+    delete_source(
+        collection,
+        relative_source,
+    )
+
+    # --------------------------------------------------------
+    # EMBEDDINGS
+    # --------------------------------------------------------
+
+    embeddings = embedding_model.encode(
+        chunks,
+        batch_size=EMBED_BATCH_SIZE,
+        show_progress_bar=False,
         normalize_embeddings=True,
-        convert_to_numpy=True,
     )
 
     embeddings = embeddings.tolist()
 
-    print(
-        "Embeddings generated successfully."
+    # --------------------------------------------------------
+    # CHROMA IDS
+    # --------------------------------------------------------
+
+    ids = []
+
+    metadatas = []
+
+    documents = []
+
+    for index, chunk in enumerate(chunks):
+
+        chunk_id = (
+            f"{hashlib.sha256(relative_source.encode()).hexdigest()[:16]}"
+            f"_{index}"
+        )
+
+        ids.append(chunk_id)
+
+        documents.append(chunk)
+
+        metadatas.append(
+            {
+                "source": relative_source,
+                "filename": path.name,
+                "chunk_id": str(index),
+                "file_hash": file_hash,
+            }
+        )
+
+    # --------------------------------------------------------
+    # INSERT IN BATCHES
+    # --------------------------------------------------------
+
+    for start in range(
+        0,
+        len(ids),
+        CHROMA_BATCH_SIZE,
+    ):
+
+        end = min(
+            start + CHROMA_BATCH_SIZE,
+            len(ids),
+        )
+
+        collection.add(
+            ids=ids[start:end],
+            documents=documents[start:end],
+            embeddings=embeddings[start:end],
+            metadatas=metadatas[start:end],
+        )
+
+    logger.info(
+        "Successfully indexed %s (%d chunks)",
+        relative_source,
+        len(chunks),
     )
 
-    print()
-
-    return embeddings
+    return len(chunks), file_hash
 
 
 # ============================================================
-# INDEX CHUNKS
+# REMOVE DELETED FILES
 # ============================================================
 
-def index_chunks(
+def remove_deleted_documents(
     collection,
-    documents,
-    metadatas,
-    ids,
-    embeddings,
+    discovered_documents: List[Path],
 ):
     """
-    Store documents, metadata and embeddings in ChromaDB.
-
-    Existing IDs are updated/replaced using upsert, which makes
-    the ingestion process safe to run multiple times.
+    Remove vectors for files that no longer exist.
     """
+
+    discovered_sources = {
+        str(path.relative_to(BASE_DIR))
+        for path in discovered_documents
+    }
+
+    existing_sources = get_existing_sources(
+        collection
+    )
+
+    for source in existing_sources:
+
+        if source not in discovered_sources:
+
+            logger.info(
+                "Document no longer exists. "
+                "Removing from index: %s",
+                source,
+            )
+
+            delete_source(
+                collection,
+                source,
+            )
+
+
+# ============================================================
+# SINGLE INGESTION RUN
+# ============================================================
+
+def run_ingestion(
+    embedding_model=None,
+    reset=False,
+):
+
+    start_time = time.time()
+
+    logger.info("=" * 70)
+    logger.info("POLICY RAG INGESTION STARTED")
+    logger.info("=" * 70)
+
+    documents = discover_documents()
+
+    logger.info(
+        "Found %d policy documents.",
+        len(documents),
+    )
 
     if not documents:
 
-        print(
-            "No documents to index."
+        logger.warning(
+            "No policy documents found in %s",
+            POLICIES_DIR,
         )
 
         return
 
-    total = len(documents)
+    # --------------------------------------------------------
+    # RESET
+    # --------------------------------------------------------
 
-    print(
-        f"Indexing {total} chunks into ChromaDB..."
+    if reset:
+
+        logger.warning(
+            "RESET requested."
+        )
+
+        if CHROMA_DIR.exists():
+
+            shutil.rmtree(
+                CHROMA_DIR,
+                ignore_errors=True,
+            )
+
+            logger.info(
+                "Deleted ChromaDB: %s",
+                CHROMA_DIR,
+            )
+
+    # --------------------------------------------------------
+    # CHROMA
+    # --------------------------------------------------------
+
+    client = create_chroma_client()
+
+    collection = get_or_create_collection(
+        client
     )
 
-    for start in range(
-        0,
-        total,
-        BATCH_SIZE,
-    ):
-
-        end = min(
-            start + BATCH_SIZE,
-            total,
-        )
-
-        collection.upsert(
-            ids=ids[start:end],
-            documents=documents[start:end],
-            metadatas=metadatas[start:end],
-            embeddings=embeddings[start:end],
-        )
-
-        print(
-            f"  Indexed {end}/{total} chunks"
-        )
-
-    print()
-    print(
-        "All chunks indexed successfully."
+    logger.info(
+        "Current vector count: %d",
+        collection.count(),
     )
-    print()
+
+    # --------------------------------------------------------
+    # MODEL
+    # --------------------------------------------------------
+
+    if embedding_model is None:
+
+        embedding_model = load_embedding_model()
+
+    # --------------------------------------------------------
+    # REMOVE DELETED DOCUMENTS
+    # --------------------------------------------------------
+
+    remove_deleted_documents(
+        collection,
+        documents,
+    )
+
+    # --------------------------------------------------------
+    # CHECK EXISTING
+    # --------------------------------------------------------
+
+    existing_sources = get_existing_sources(
+        collection
+    )
+
+    indexed_count = 0
+    skipped_count = 0
+    failed_count = 0
+    total_chunks = 0
+
+    # --------------------------------------------------------
+    # PROCESS DOCUMENTS
+    # --------------------------------------------------------
+
+    for path in documents:
+
+        if STOP_REQUESTED:
+
+            logger.warning(
+                "Stopping ingestion gracefully."
+            )
+
+            break
+
+        relative_source = str(
+            path.relative_to(BASE_DIR)
+        )
+
+        try:
+
+            current_hash = calculate_file_hash(
+                path
+            )
+
+            previous = existing_sources.get(
+                relative_source
+            )
+
+            previous_hash = (
+                previous.get("file_hash")
+                if previous
+                else None
+            )
+
+            # ------------------------------------------------
+            # SKIP UNCHANGED DOCUMENT
+            # ------------------------------------------------
+
+            if (
+                previous_hash
+                and previous_hash == current_hash
+            ):
+
+                skipped_count += 1
+
+                logger.info(
+                    "SKIPPED unchanged: %s",
+                    relative_source,
+                )
+
+                continue
+
+            # ------------------------------------------------
+            # INGEST
+            # ------------------------------------------------
+
+            chunks, _ = ingest_document(
+                path=path,
+                collection=collection,
+                embedding_model=embedding_model,
+            )
+
+            indexed_count += 1
+            total_chunks += chunks
+
+        except Exception as exc:
+
+            failed_count += 1
+
+            logger.exception(
+                "FAILED: %s",
+                relative_source,
+            )
+
+    # --------------------------------------------------------
+    # FINAL STATUS
+    # --------------------------------------------------------
+
+    elapsed = time.time() - start_time
+
+    final_count = collection.count()
+
+    logger.info("=" * 70)
+    logger.info("INGESTION COMPLETE")
+    logger.info("=" * 70)
+
+    logger.info(
+        "Documents found: %d",
+        len(documents),
+    )
+
+    logger.info(
+        "Documents indexed: %d",
+        indexed_count,
+    )
+
+    logger.info(
+        "Documents skipped: %d",
+        skipped_count,
+    )
+
+    logger.info(
+        "Documents failed: %d",
+        failed_count,
+    )
+
+    logger.info(
+        "New chunks: %d",
+        total_chunks,
+    )
+
+    logger.info(
+        "Total vectors in ChromaDB: %d",
+        final_count,
+    )
+
+    logger.info(
+        "Execution time: %.2f seconds",
+        elapsed,
+    )
+
+    logger.info(
+        "Database: %s",
+        CHROMA_DIR,
+    )
+
+    logger.info("=" * 70)
+
+
+# ============================================================
+# CONTINUOUS MODE
+# ============================================================
+
+def run_watch_mode(
+    interval: int,
+    reset: bool = False,
+):
+
+    logger.info("=" * 70)
+    logger.info("24/7 POLICY INGESTION MODE")
+    logger.info("=" * 70)
+
+    logger.info(
+        "Checking policies every %d seconds.",
+        interval,
+    )
+
+    logger.info(
+        "Press CTRL+C to stop."
+    )
+
+    embedding_model = None
+
+    first_run = True
+
+    retry_delay = 5
+
+    while not STOP_REQUESTED:
+
+        try:
+
+            run_ingestion(
+                embedding_model=embedding_model,
+                reset=reset if first_run else False,
+            )
+
+            first_run = False
+
+            retry_delay = 5
+
+            # Keep model loaded between runs.
+            if embedding_model is None:
+
+                embedding_model = (
+                    load_embedding_model()
+                )
+
+            logger.info(
+                "Next check in %d seconds.",
+                interval,
+            )
+
+            # Interruptible sleep
+            for _ in range(interval):
+
+                if STOP_REQUESTED:
+                    break
+
+                time.sleep(1)
+
+        except Exception as exc:
+
+            logger.exception(
+                "Ingestion cycle failed: %s",
+                exc,
+            )
+
+            logger.warning(
+                "Retrying in %d seconds...",
+                retry_delay,
+            )
+
+            for _ in range(retry_delay):
+
+                if STOP_REQUESTED:
+                    break
+
+                time.sleep(1)
+
+            retry_delay = min(
+                retry_delay * 2,
+                MAX_RETRY_DELAY,
+            )
+
+    logger.info(
+        "24/7 ingestion service stopped."
+    )
+
+
+# ============================================================
+# CLI
+# ============================================================
+
+def parse_args():
+
+    parser = argparse.ArgumentParser(
+        description="Policy RAG ingestion service"
+    )
+
+    parser.add_argument(
+        "--watch",
+        action="store_true",
+        help="Run continuously.",
+    )
+
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="Delete and rebuild ChromaDB.",
+    )
+
+    parser.add_argument(
+        "--interval",
+        type=int,
+        default=DEFAULT_WATCH_INTERVAL,
+        help=(
+            "Seconds between checks "
+            f"(default: {DEFAULT_WATCH_INTERVAL})"
+        ),
+    )
+
+    return parser.parse_args()
 
 
 # ============================================================
@@ -747,232 +1064,30 @@ def index_chunks(
 
 def main():
 
-    print_header()
+    args = parse_args()
 
-    # --------------------------------------------------------
-    # Validate configuration
-    # --------------------------------------------------------
+    if args.interval < 10:
 
-    if CHUNK_OVERLAP >= CHUNK_SIZE:
-
-        print(
-            "ERROR: CHUNK_OVERLAP must be "
-            "smaller than CHUNK_SIZE."
+        logger.warning(
+            "Interval too small. "
+            "Using 10 seconds."
         )
 
-        sys.exit(1)
+        args.interval = 10
 
-    # --------------------------------------------------------
-    # Find policy documents
-    # --------------------------------------------------------
+    if args.watch:
 
-    try:
-
-        files = find_documents()
-
-    except Exception as exc:
-
-        print(
-            f"ERROR: {exc}"
+        run_watch_mode(
+            interval=args.interval,
+            reset=args.reset,
         )
 
-        sys.exit(1)
+    else:
 
-    if not files:
-
-        print(
-            "No supported policy documents found."
+        run_ingestion(
+            reset=args.reset
         )
 
-        print()
-        print(
-            "Add PDF, TXT or MD files to:"
-        )
-
-        print(
-            f"  {DATA_PATH}"
-        )
-
-        sys.exit(1)
-
-    # --------------------------------------------------------
-    # Load embedding model
-    # --------------------------------------------------------
-
-    try:
-
-        model = load_embedding_model()
-
-    except Exception as exc:
-
-        print(
-            "ERROR loading embedding model:"
-        )
-
-        print(exc)
-
-        sys.exit(1)
-
-    # --------------------------------------------------------
-    # Prepare documents
-    # --------------------------------------------------------
-
-    (
-        documents,
-        metadatas,
-        ids,
-    ) = prepare_documents(files)
-
-    if not documents:
-
-        print(
-            "ERROR: No usable document chunks "
-            "were generated."
-        )
-
-        sys.exit(1)
-
-    # --------------------------------------------------------
-    # Generate embeddings
-    # --------------------------------------------------------
-
-    try:
-
-        embeddings = generate_embeddings(
-            model,
-            documents,
-        )
-
-    except Exception as exc:
-
-        print(
-            "ERROR generating embeddings:"
-        )
-
-        print(exc)
-
-        sys.exit(1)
-
-    # --------------------------------------------------------
-    # Connect to ChromaDB
-    # --------------------------------------------------------
-
-    try:
-
-        client = create_chroma_client()
-
-        collection = get_collection(
-            client
-        )
-
-    except Exception as exc:
-
-        print(
-            "ERROR connecting to ChromaDB:"
-        )
-
-        print(exc)
-
-        print()
-        print(
-            "If this is an old/incompatible "
-            "chroma_db directory, stop Streamlit "
-            "and rebuild the database."
-        )
-
-        sys.exit(1)
-
-    # --------------------------------------------------------
-    # Index
-    # --------------------------------------------------------
-
-    try:
-
-        index_chunks(
-            collection=collection,
-            documents=documents,
-            metadatas=metadatas,
-            ids=ids,
-            embeddings=embeddings,
-        )
-
-    except Exception as exc:
-
-        print(
-            "ERROR indexing documents:"
-        )
-
-        print(exc)
-
-        sys.exit(1)
-
-    # --------------------------------------------------------
-    # Verify
-    # --------------------------------------------------------
-
-    try:
-
-        final_count = collection.count()
-
-    except Exception as exc:
-
-        print(
-            "WARNING: Could not verify "
-            f"collection count: {exc}"
-        )
-
-        final_count = None
-
-    # --------------------------------------------------------
-    # Final output
-    # --------------------------------------------------------
-
-    print()
-    print("=" * 70)
-    print("INGESTION COMPLETE")
-    print("=" * 70)
-    print()
-
-    print(
-        f"Database : {CHROMA_PATH}"
-    )
-
-    print(
-        f"Collection: {COLLECTION_NAME}"
-    )
-
-    print(
-        f"Embedding : {EMBED_MODEL_NAME}"
-    )
-
-    print(
-        f"Chunks processed: {len(documents)}"
-    )
-
-    if final_count is not None:
-
-        print(
-            f"Chunks in database: {final_count}"
-        )
-
-    print()
-    print(
-        "You can now start the application with:"
-    )
-
-    print()
-    print(
-        "    streamlit run app.py"
-    )
-
-    print()
-    print("=" * 70)
-    print()
-
-
-# ============================================================
-# ENTRY POINT
-# ============================================================
 
 if __name__ == "__main__":
     main()
