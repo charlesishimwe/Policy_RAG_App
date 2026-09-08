@@ -1,21 +1,36 @@
 """
-Policy RAG App - Document Ingestion
+POLICY RAG APP - ROBUST INGESTION ENGINE
 
-This script:
-1. Reads documents from ./policies
-2. Supports PDF, TXT, MD and HTML
-3. Cleans extracted text
-4. Splits documents into overlapping chunks
-5. Creates embeddings with Sentence Transformers
-6. Stores chunks in ChromaDB
-7. Uses the SAME database and collection expected by app.py
-8. Automatically rebuilds the index when necessary
+Features
+--------
+- PDF / TXT / MD / HTML support
+- Automatic text extraction
+- Text cleaning
+- Overlapping chunks
+- Sentence Transformer embeddings
+- Persistent ChromaDB
+- Automatic recovery from broken ChromaDB
+- Automatic recovery from empty collections
+- Duplicate-safe indexing
+- Changed-file detection
+- Deleted-file cleanup
+- Continuous watch mode
+- Strong validation
+- Same database path expected by app.py
 
-Run:
+Commands
+--------
+Build/rebuild:
+    python ingest.py --reset
+
+Normal:
     python ingest.py
 
-Force rebuild:
-    python ingest.py --reset
+Continuous 24/7:
+    python ingest.py --watch
+
+Continuous every 60 seconds:
+    python ingest.py --watch --interval 60
 """
 
 from __future__ import annotations
@@ -25,7 +40,9 @@ import hashlib
 import logging
 import shutil
 import sys
+import time
 from pathlib import Path
+from typing import List
 
 import chromadb
 from bs4 import BeautifulSoup
@@ -34,7 +51,7 @@ from sentence_transformers import SentenceTransformer
 
 
 # ============================================================
-# PROJECT PATHS
+# CONFIGURATION
 # ============================================================
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -42,27 +59,19 @@ BASE_DIR = Path(__file__).resolve().parent
 POLICIES_DIR = BASE_DIR / "policies"
 
 # IMPORTANT:
-# app.py MUST use this exact same directory.
+# app.py MUST use exactly this same directory.
 CHROMA_DIR = BASE_DIR / "chroma_db"
 
 # IMPORTANT:
-# app.py MUST use this exact same collection.
+# app.py MUST use exactly this same collection.
 COLLECTION_NAME = "policy_docs"
 
-
-# ============================================================
-# EMBEDDING CONFIGURATION
-# ============================================================
-
+# IMPORTANT:
+# app.py MUST use exactly this same model.
 EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
 
 CHUNK_SIZE = 800
 CHUNK_OVERLAP = 150
-
-
-# ============================================================
-# SUPPORTED FILES
-# ============================================================
 
 SUPPORTED_EXTENSIONS = {
     ".pdf",
@@ -71,6 +80,10 @@ SUPPORTED_EXTENSIONS = {
     ".html",
     ".htm",
 }
+
+BATCH_SIZE = 100
+
+DEFAULT_INTERVAL = 300
 
 
 # ============================================================
@@ -82,7 +95,7 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(message)s",
 )
 
-logger = logging.getLogger("policy-rag")
+logger = logging.getLogger("policy-rag-ingestion")
 
 
 # ============================================================
@@ -90,36 +103,41 @@ logger = logging.getLogger("policy-rag")
 # ============================================================
 
 def clean_text(text: str) -> str:
-    """
-    Clean extracted document text.
-    """
 
     if not text:
         return ""
 
     text = text.replace("\x00", " ")
 
-    lines = []
+    cleaned_lines = []
 
     for line in text.splitlines():
 
         line = " ".join(line.split())
 
         if line:
-            lines.append(line)
+            cleaned_lines.append(line)
 
-    return "\n".join(lines).strip()
+    return "\n".join(cleaned_lines).strip()
 
 
 # ============================================================
-# PDF
+# PDF EXTRACTION
 # ============================================================
 
 def extract_pdf(path: Path) -> str:
 
     logger.info("Reading PDF: %s", path.name)
 
-    reader = PdfReader(str(path))
+    try:
+
+        reader = PdfReader(str(path))
+
+    except Exception as exc:
+
+        raise RuntimeError(
+            f"Unable to open PDF {path.name}: {exc}"
+        ) from exc
 
     pages = []
 
@@ -132,7 +150,9 @@ def extract_pdf(path: Path) -> str:
 
             text = page.extract_text() or ""
 
-            if text.strip():
+            text = text.strip()
+
+            if text:
 
                 pages.append(
                     f"[Page {page_number}]\n{text}"
@@ -141,7 +161,7 @@ def extract_pdf(path: Path) -> str:
         except Exception as exc:
 
             logger.warning(
-                "Could not extract page %d from %s: %s",
+                "Page %d failed in %s: %s",
                 page_number,
                 path.name,
                 exc,
@@ -151,7 +171,7 @@ def extract_pdf(path: Path) -> str:
 
 
 # ============================================================
-# TEXT / MARKDOWN
+# TEXT EXTRACTION
 # ============================================================
 
 def extract_text_file(path: Path) -> str:
@@ -176,28 +196,29 @@ def extract_text_file(path: Path) -> str:
             continue
 
     raise RuntimeError(
-        f"Could not decode file: {path}"
+        f"Unable to decode {path.name}"
     )
 
 
 # ============================================================
-# HTML
+# HTML EXTRACTION
 # ============================================================
 
 def extract_html(path: Path) -> str:
 
-    raw = extract_text_file(path)
+    raw_html = extract_text_file(path)
 
     soup = BeautifulSoup(
-        raw,
+        raw_html,
         "html.parser",
     )
 
-    for tag in soup(
+    for tag in soup.find_all(
         [
             "script",
             "style",
             "noscript",
+            "svg",
         ]
     ):
 
@@ -209,7 +230,7 @@ def extract_html(path: Path) -> str:
 
 
 # ============================================================
-# GENERIC EXTRACTION
+# DOCUMENT EXTRACTION
 # ============================================================
 
 def extract_document(path: Path) -> str:
@@ -220,22 +241,16 @@ def extract_document(path: Path) -> str:
 
         return extract_pdf(path)
 
-    if extension in {
-        ".txt",
-        ".md",
-    }:
+    if extension in {".txt", ".md"}:
 
         return extract_text_file(path)
 
-    if extension in {
-        ".html",
-        ".htm",
-    }:
+    if extension in {".html", ".htm"}:
 
         return extract_html(path)
 
-    raise ValueError(
-        f"Unsupported extension: {extension}"
+    raise RuntimeError(
+        f"Unsupported file type: {extension}"
     )
 
 
@@ -243,31 +258,31 @@ def extract_document(path: Path) -> str:
 # CHUNKING
 # ============================================================
 
-def chunk_text(
+def create_chunks(
     text: str,
-    chunk_size: int = CHUNK_SIZE,
-    overlap: int = CHUNK_OVERLAP,
-):
+) -> List[str]:
 
     if not text:
 
         return []
 
-    if overlap >= chunk_size:
+    if CHUNK_OVERLAP >= CHUNK_SIZE:
 
         raise ValueError(
-            "CHUNK_OVERLAP must be smaller than CHUNK_SIZE"
+            "CHUNK_OVERLAP must be smaller than CHUNK_SIZE."
         )
 
     chunks = []
 
     start = 0
 
-    while start < len(text):
+    text_length = len(text)
+
+    while start < text_length:
 
         end = min(
-            start + chunk_size,
-            len(text),
+            start + CHUNK_SIZE,
+            text_length,
         )
 
         chunk = text[start:end].strip()
@@ -276,64 +291,71 @@ def chunk_text(
 
             chunks.append(chunk)
 
-        if end >= len(text):
+        if end >= text_length:
 
             break
 
-        start = end - overlap
+        start = end - CHUNK_OVERLAP
 
     return chunks
 
 
 # ============================================================
-# FIND POLICIES
+# FIND POLICY FILES
 # ============================================================
 
-def find_policy_files():
+def find_policy_files() -> List[Path]:
 
-    if not POLICIES_DIR.exists():
-
-        logger.warning(
-            "Policies directory does not exist."
-        )
-
-        POLICIES_DIR.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
-
-        return []
+    POLICIES_DIR.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
     files = []
 
-    for file in POLICIES_DIR.rglob("*"):
+    for path in POLICIES_DIR.rglob("*"):
 
-        if not file.is_file():
-
-            continue
-
-        if file.suffix.lower() not in SUPPORTED_EXTENSIONS:
+        if not path.is_file():
 
             continue
 
-        files.append(file)
+        if path.suffix.lower() not in SUPPORTED_EXTENSIONS:
+
+            continue
+
+        files.append(path)
 
     return sorted(files)
+
+
+# ============================================================
+# SOURCE NAME
+# ============================================================
+
+def get_source(path: Path) -> str:
+
+    return str(
+        path.relative_to(BASE_DIR)
+    ).replace("\\", "/")
 
 
 # ============================================================
 # FILE HASH
 # ============================================================
 
-def calculate_hash(path: Path):
+def calculate_hash(path: Path) -> str:
 
     sha256 = hashlib.sha256()
 
-    with path.open("rb") as file:
+    with path.open(
+        "rb"
+    ) as file:
 
         while True:
 
-            data = file.read(1024 * 1024)
+            data = file.read(
+                1024 * 1024
+            )
 
             if not data:
 
@@ -356,15 +378,12 @@ def create_chroma_client():
     )
 
     logger.info(
-        "ChromaDB location:"
-    )
-
-    logger.info(
-        "%s",
+        "ChromaDB path: %s",
         CHROMA_DIR,
     )
 
     # IMPORTANT:
+    #
     # Do NOT use Settings(...)
     #
     # This avoids the previous:
@@ -372,18 +391,16 @@ def create_chroma_client():
     # KeyError: '_type'
     #
 
-    client = chromadb.PersistentClient(
+    return chromadb.PersistentClient(
         path=str(CHROMA_DIR)
     )
 
-    return client
-
 
 # ============================================================
-# CREATE COLLECTION
+# COLLECTION
 # ============================================================
 
-def create_collection(client):
+def get_or_create_collection(client):
 
     try:
 
@@ -392,96 +409,131 @@ def create_collection(client):
         )
 
         logger.info(
-            "Existing collection found: %s",
+            "Collection loaded: %s",
             COLLECTION_NAME,
         )
 
         return collection
 
-    except Exception:
+    except Exception as exc:
+
+        logger.warning(
+            "Collection unavailable: %s",
+            exc,
+        )
 
         logger.info(
             "Creating collection: %s",
             COLLECTION_NAME,
         )
 
-        collection = client.create_collection(
-            name=COLLECTION_NAME,
-            metadata={
-                "hnsw:space": "cosine"
-            },
+        try:
+
+            return client.create_collection(
+                name=COLLECTION_NAME,
+                metadata={
+                    "hnsw:space": "cosine"
+                },
+            )
+
+        except Exception as create_error:
+
+            raise RuntimeError(
+                "Could not create ChromaDB collection. "
+                f"Original error: {exc}. "
+                f"Create error: {create_error}"
+            ) from create_error
+
+
+# ============================================================
+# RESET CHROMA
+# ============================================================
+
+def reset_chroma():
+
+    if not CHROMA_DIR.exists():
+
+        logger.info(
+            "No existing ChromaDB to reset."
         )
 
-        return collection
+        return
+
+    logger.warning(
+        "Removing existing ChromaDB..."
+    )
+
+    try:
+
+        shutil.rmtree(
+            CHROMA_DIR
+        )
+
+    except Exception as exc:
+
+        raise RuntimeError(
+            f"Could not delete {CHROMA_DIR}: {exc}"
+        ) from exc
+
+    logger.info(
+        "Old ChromaDB removed."
+    )
 
 
 # ============================================================
-# DOCUMENT SOURCE
+# REBUILD BROKEN DATABASE
 # ============================================================
 
-def source_name(path: Path):
+def create_fresh_database():
 
-    return str(
-        path.relative_to(BASE_DIR)
-    ).replace("\\", "/")
+    logger.warning(
+        "Creating a fresh ChromaDB."
+    )
+
+    reset_chroma()
+
+    client = create_chroma_client()
+
+    collection = client.create_collection(
+        name=COLLECTION_NAME,
+        metadata={
+            "hnsw:space": "cosine"
+        },
+    )
+
+    return client, collection
 
 
 # ============================================================
-# INDEX ONE DOCUMENT
+# LOAD MODEL
 # ============================================================
 
-def index_document(
-    path: Path,
+def load_model():
+
+    logger.info(
+        "Loading embedding model: %s",
+        EMBEDDING_MODEL_NAME,
+    )
+
+    model = SentenceTransformer(
+        EMBEDDING_MODEL_NAME
+    )
+
+    logger.info(
+        "Embedding model loaded successfully."
+    )
+
+    return model
+
+
+# ============================================================
+# DELETE SOURCE
+# ============================================================
+
+def delete_source(
     collection,
-    model,
+    source: str,
 ):
-
-    source = source_name(path)
-
-    logger.info(
-        "--------------------------------------------------"
-    )
-
-    logger.info(
-        "Processing: %s",
-        source,
-    )
-
-    # --------------------------------------------------------
-    # EXTRACT
-    # --------------------------------------------------------
-
-    raw_text = extract_document(path)
-
-    text = clean_text(raw_text)
-
-    if not text:
-
-        logger.warning(
-            "No text extracted from %s",
-            source,
-        )
-
-        return 0
-
-    # --------------------------------------------------------
-    # CHUNK
-    # --------------------------------------------------------
-
-    chunks = chunk_text(text)
-
-    logger.info(
-        "Created %d chunks",
-        len(chunks),
-    )
-
-    if not chunks:
-
-        return 0
-
-    # --------------------------------------------------------
-    # DELETE OLD VERSION
-    # --------------------------------------------------------
 
     try:
 
@@ -491,19 +543,156 @@ def index_document(
             }
         )
 
+        logger.info(
+            "Removed previous chunks: %s",
+            source,
+        )
+
     except Exception as exc:
 
         logger.warning(
-            "Could not delete previous chunks: %s",
+            "Could not remove previous chunks for %s: %s",
+            source,
             exc,
         )
+
+
+# ============================================================
+# GET EXISTING SOURCE HASHES
+# ============================================================
+
+def get_indexed_sources(collection):
+
+    sources = {}
+
+    try:
+
+        result = collection.get(
+            include=["metadatas"]
+        )
+
+    except Exception as exc:
+
+        logger.warning(
+            "Could not inspect existing index: %s",
+            exc,
+        )
+
+        return sources
+
+    metadatas = result.get(
+        "metadatas",
+        []
+    )
+
+    for metadata in metadatas:
+
+        if not metadata:
+
+            continue
+
+        source = metadata.get(
+            "source"
+        )
+
+        file_hash = metadata.get(
+            "file_hash"
+        )
+
+        if source:
+
+            sources[source] = file_hash
+
+    return sources
+
+
+# ============================================================
+# INDEX DOCUMENT
+# ============================================================
+
+def index_document(
+    path: Path,
+    collection,
+    model,
+):
+
+    source = get_source(path)
+
+    logger.info(
+        ""
+    )
+
+    logger.info(
+        "Processing: %s",
+        source,
+    )
+
+    # --------------------------------------------------------
+    # HASH
+    # --------------------------------------------------------
+
+    file_hash = calculate_hash(
+        path
+    )
+
+    # --------------------------------------------------------
+    # EXTRACT
+    # --------------------------------------------------------
+
+    raw_text = extract_document(
+        path
+    )
+
+    text = clean_text(
+        raw_text
+    )
+
+    if not text:
+
+        logger.warning(
+            "No text extracted: %s",
+            source,
+        )
+
+        return 0
+
+    # --------------------------------------------------------
+    # CHUNKS
+    # --------------------------------------------------------
+
+    chunks = create_chunks(
+        text
+    )
+
+    if not chunks:
+
+        logger.warning(
+            "No chunks generated: %s",
+            source,
+        )
+
+        return 0
+
+    logger.info(
+        "Chunks generated: %d",
+        len(chunks),
+    )
+
+    # --------------------------------------------------------
+    # REMOVE OLD VERSION
+    # --------------------------------------------------------
+
+    delete_source(
+        collection,
+        source,
+    )
 
     # --------------------------------------------------------
     # EMBEDDINGS
     # --------------------------------------------------------
 
     logger.info(
-        "Generating embeddings..."
+        "Creating embeddings..."
     )
 
     embeddings = model.encode(
@@ -516,10 +705,12 @@ def index_document(
     embeddings = embeddings.tolist()
 
     # --------------------------------------------------------
-    # IDS
+    # IDS / METADATA
     # --------------------------------------------------------
 
-    file_hash = calculate_hash(path)
+    source_id = hashlib.sha256(
+        source.encode("utf-8")
+    ).hexdigest()[:20]
 
     ids = []
 
@@ -527,19 +718,17 @@ def index_document(
 
     metadatas = []
 
-    source_hash = hashlib.sha256(
-        source.encode("utf-8")
-    ).hexdigest()[:16]
+    for index, chunk in enumerate(
+        chunks
+    ):
 
-    for index, chunk in enumerate(chunks):
-
-        chunk_id = (
-            f"{source_hash}_{index}"
+        ids.append(
+            f"{source_id}_{index}"
         )
 
-        ids.append(chunk_id)
-
-        documents.append(chunk)
+        documents.append(
+            chunk
+        )
 
         metadatas.append(
             {
@@ -551,24 +740,17 @@ def index_document(
         )
 
     # --------------------------------------------------------
-    # ADD TO CHROMA
+    # WRITE TO CHROMA
     # --------------------------------------------------------
-
-    logger.info(
-        "Writing %d chunks to ChromaDB...",
-        len(ids),
-    )
-
-    batch_size = 100
 
     for start in range(
         0,
         len(ids),
-        batch_size,
+        BATCH_SIZE,
     ):
 
         end = min(
-            start + batch_size,
+            start + BATCH_SIZE,
             len(ids),
         )
 
@@ -580,94 +762,91 @@ def index_document(
         )
 
     logger.info(
-        "SUCCESS: %s",
+        "INDEXED: %s | %d chunks",
         source,
+        len(chunks),
     )
 
     return len(chunks)
 
 
 # ============================================================
-# RESET DATABASE
+# REMOVE DELETED FILES
 # ============================================================
 
-def reset_database():
+def remove_deleted_files(
+    collection,
+    policy_files,
+):
 
-    if CHROMA_DIR.exists():
+    current_sources = {
+        get_source(path)
+        for path in policy_files
+    }
 
-        logger.warning(
-            "Deleting old ChromaDB..."
-        )
+    indexed_sources = get_indexed_sources(
+        collection
+    )
 
-        shutil.rmtree(
-            CHROMA_DIR
-        )
+    for source in indexed_sources:
 
-        logger.info(
-            "Old ChromaDB deleted."
-        )
+        if source not in current_sources:
+
+            logger.info(
+                "Removing deleted policy: %s",
+                source,
+            )
+
+            delete_source(
+                collection,
+                source,
+            )
 
 
 # ============================================================
-# MAIN INGESTION
+# INGESTION
 # ============================================================
 
-def ingest():
+def run_ingestion(
+    model,
+    force_reset=False,
+):
 
-    logger.info("")
     logger.info(
-        "======================================================"
-    )
-    logger.info(
-        "          POLICY RAG INGESTION"
-    )
-    logger.info(
-        "======================================================"
+        ""
     )
 
     logger.info(
-        "Project directory: %s",
-        BASE_DIR,
+        "============================================================"
     )
 
     logger.info(
-        "Policies directory: %s",
-        POLICIES_DIR,
+        "POLICY RAG INGESTION START"
     )
 
     logger.info(
-        "ChromaDB directory: %s",
-        CHROMA_DIR,
-    )
-
-    logger.info(
-        "Collection: %s",
-        COLLECTION_NAME,
-    )
-
-    logger.info(
-        "Embedding model: %s",
-        EMBEDDING_MODEL_NAME,
+        "============================================================"
     )
 
     # --------------------------------------------------------
-    # FIND DOCUMENTS
+    # FILES
     # --------------------------------------------------------
 
-    files = find_policy_files()
+    policy_files = find_policy_files()
 
-    if not files:
+    logger.info(
+        "Policy files found: %d",
+        len(policy_files),
+    )
+
+    if not policy_files:
 
         logger.error(
-            ""
+            "NO POLICY DOCUMENTS FOUND."
         )
 
         logger.error(
-            "NO POLICY FILES FOUND!"
-        )
-
-        logger.error(
-            "Put your PDF/TXT/MD/HTML files inside:"
+            "Add PDF/TXT/MD/HTML files to:"
         )
 
         logger.error(
@@ -675,69 +854,138 @@ def ingest():
             POLICIES_DIR,
         )
 
-        sys.exit(1)
+        return False
 
-    logger.info(
-        "Found %d policy documents.",
-        len(files),
-    )
+    # --------------------------------------------------------
+    # DATABASE
+    # --------------------------------------------------------
 
-    for file in files:
+    if force_reset:
 
-        logger.info(
-            "  - %s",
-            source_name(file),
+        reset_chroma()
+
+        client = create_chroma_client()
+
+        collection = client.create_collection(
+            name=COLLECTION_NAME,
+            metadata={
+                "hnsw:space": "cosine"
+            },
         )
 
-    # --------------------------------------------------------
-    # CHROMA
-    # --------------------------------------------------------
-
-    client = create_chroma_client()
-
-    collection = create_collection(
-        client
-    )
-
-    # --------------------------------------------------------
-    # EMBEDDING MODEL
-    # --------------------------------------------------------
-
-    logger.info(
-        "Loading embedding model..."
-    )
-
-    model = SentenceTransformer(
-        EMBEDDING_MODEL_NAME
-    )
-
-    logger.info(
-        "Embedding model loaded."
-    )
-
-    # --------------------------------------------------------
-    # INDEX
-    # --------------------------------------------------------
-
-    total_chunks = 0
-
-    successful = 0
-
-    failed = 0
-
-    for file in files:
+    else:
 
         try:
 
-            chunks = index_document(
-                path=file,
-                collection=collection,
-                model=model,
+            client = create_chroma_client()
+
+            collection = get_or_create_collection(
+                client
             )
 
-            total_chunks += chunks
+        except Exception as exc:
 
-            successful += 1
+            logger.error(
+                "Existing ChromaDB is unusable."
+            )
+
+            logger.error(
+                "%s",
+                exc,
+            )
+
+            logger.warning(
+                "Automatically rebuilding ChromaDB..."
+            )
+
+            client, collection = (
+                create_fresh_database()
+            )
+
+    # --------------------------------------------------------
+    # REMOVE DELETED
+    # --------------------------------------------------------
+
+    remove_deleted_files(
+        collection,
+        policy_files,
+    )
+
+    # --------------------------------------------------------
+    # EXISTING INDEX
+    # --------------------------------------------------------
+
+    existing_sources = get_indexed_sources(
+        collection
+    )
+
+    total_chunks = 0
+
+    processed = 0
+
+    skipped = 0
+
+    failed = 0
+
+    # --------------------------------------------------------
+    # PROCESS
+    # --------------------------------------------------------
+
+    for path in policy_files:
+
+        source = get_source(
+            path
+        )
+
+        try:
+
+            current_hash = calculate_hash(
+                path
+            )
+
+            existing_hash = (
+                existing_sources.get(
+                    source
+                )
+            )
+
+            # ------------------------------------------------
+            # SKIP UNCHANGED
+            # ------------------------------------------------
+
+            if (
+                existing_hash
+                and existing_hash == current_hash
+            ):
+
+                logger.info(
+                    "SKIPPED unchanged: %s",
+                    source,
+                )
+
+                skipped += 1
+
+                continue
+
+            # ------------------------------------------------
+            # INDEX
+            # ------------------------------------------------
+
+            chunks = index_document(
+                path,
+                collection,
+                model,
+            )
+
+            if chunks > 0:
+
+                total_chunks += chunks
+
+                processed += 1
+
+            else:
+
+                failed += 1
 
         except Exception as exc:
 
@@ -745,11 +993,11 @@ def ingest():
 
             logger.exception(
                 "FAILED: %s",
-                file,
+                source,
             )
 
     # --------------------------------------------------------
-    # FINAL VERIFICATION
+    # VALIDATION
     # --------------------------------------------------------
 
     try:
@@ -759,107 +1007,283 @@ def ingest():
     except Exception as exc:
 
         logger.error(
-            "Could not verify ChromaDB: %s",
+            "Unable to read ChromaDB count: %s",
             exc,
         )
 
-        sys.exit(1)
+        return False
 
-    logger.info("")
     logger.info(
-        "======================================================"
+        ""
     )
 
     logger.info(
-        "              INGESTION FINISHED"
+        "============================================================"
     )
 
     logger.info(
-        "======================================================"
+        "INGESTION RESULT"
     )
 
     logger.info(
-        "Documents found: %d",
-        len(files),
+        "============================================================"
     )
 
     logger.info(
-        "Documents processed: %d",
-        successful,
+        "Policy files:       %d",
+        len(policy_files),
     )
 
     logger.info(
-        "Documents failed: %d",
+        "Indexed:            %d",
+        processed,
+    )
+
+    logger.info(
+        "Skipped:            %d",
+        skipped,
+    )
+
+    logger.info(
+        "Failed:             %d",
         failed,
     )
 
     logger.info(
-        "Chunks generated: %d",
+        "New chunks:         %d",
         total_chunks,
     )
 
     logger.info(
-        "TOTAL CHUNKS IN CHROMADB: %d",
+        "TOTAL CHROMA CHUNKS: %d",
         final_count,
     )
 
     logger.info(
-        "Database: %s",
+        "Database:           %s",
         CHROMA_DIR,
     )
 
     logger.info(
-        "Collection: %s",
+        "Collection:         %s",
         COLLECTION_NAME,
     )
 
     logger.info(
-        "======================================================"
+        "============================================================"
     )
 
     # --------------------------------------------------------
-    # CRITICAL VALIDATION
+    # CRITICAL
     # --------------------------------------------------------
 
-    if final_count == 0:
+    if final_count <= 0:
 
         logger.error(
-            "ERROR: ChromaDB contains ZERO chunks."
+            "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
         )
 
         logger.error(
-            "The Streamlit application will not be able to answer questions."
+            "ZERO POLICY CHUNKS INDEXED."
         )
 
-        sys.exit(1)
+        logger.error(
+            "Check that your PDFs contain selectable text."
+        )
+
+        logger.error(
+            "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+        )
+
+        return False
 
     logger.info(
-        "SUCCESS: Policy RAG database is ready."
+        "SUCCESS: POLICY DATABASE READY."
     )
+
+    return True
 
 
 # ============================================================
-# COMMAND LINE
+# CONTINUOUS MODE
+# ============================================================
+
+def watch_mode(
+    interval: int,
+    reset: bool = False,
+):
+
+    logger.info(
+        ""
+    )
+
+    logger.info(
+        "============================================================"
+    )
+
+    logger.info(
+        "POLICY RAG 24/7 WATCH MODE"
+    )
+
+    logger.info(
+        "============================================================"
+    )
+
+    logger.info(
+        "Checking every %d seconds.",
+        interval,
+    )
+
+    logger.info(
+        "Press CTRL+C to stop."
+    )
+
+    model = None
+
+    first_run = True
+
+    while True:
+
+        try:
+
+            # Load model once.
+            if model is None:
+
+                model = load_model()
+
+            success = run_ingestion(
+                model=model,
+                force_reset=(
+                    reset
+                    if first_run
+                    else False
+                ),
+            )
+
+            first_run = False
+
+            if success:
+
+                logger.info(
+                    "Next check in %d seconds.",
+                    interval,
+                )
+
+            else:
+
+                logger.warning(
+                    "Ingestion was not successful."
+                )
+
+                logger.info(
+                    "Will retry in %d seconds.",
+                    interval,
+                )
+
+            time.sleep(
+                interval
+            )
+
+        except KeyboardInterrupt:
+
+            logger.info(
+                "24/7 ingestion stopped."
+            )
+
+            break
+
+        except Exception as exc:
+
+            logger.exception(
+                "Unexpected ingestion error: %s",
+                exc,
+            )
+
+            logger.info(
+                "Retrying in %d seconds.",
+                interval,
+            )
+
+            time.sleep(
+                interval
+            )
+
+
+# ============================================================
+# MAIN
 # ============================================================
 
 def main():
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description="Policy RAG ingestion engine"
+    )
 
     parser.add_argument(
         "--reset",
         action="store_true",
-        help="Delete existing ChromaDB before ingestion.",
+        help="Delete and rebuild ChromaDB.",
+    )
+
+    parser.add_argument(
+        "--watch",
+        action="store_true",
+        help="Run continuously.",
+    )
+
+    parser.add_argument(
+        "--interval",
+        type=int,
+        default=DEFAULT_INTERVAL,
+        help="Watch interval in seconds.",
     )
 
     args = parser.parse_args()
 
+    # --------------------------------------------------------
+    # WATCH
+    # --------------------------------------------------------
+
+    if args.watch:
+
+        if args.interval < 30:
+
+            logger.warning(
+                "Minimum interval is 30 seconds."
+            )
+
+            args.interval = 30
+
+        watch_mode(
+            interval=args.interval,
+            reset=args.reset,
+        )
+
+        return
+
+    # --------------------------------------------------------
+    # NORMAL
+    # --------------------------------------------------------
+
     if args.reset:
 
-        reset_database()
+        reset_chroma()
 
-    ingest()
+    model = load_model()
 
+    success = run_ingestion(
+        model=model,
+        force_reset=False,
+    )
+
+    if not success:
+
+        sys.exit(1)
+
+
+# ============================================================
+# ENTRY POINT
+# ============================================================
 
 if __name__ == "__main__":
 
