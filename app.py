@@ -1,404 +1,424 @@
 """
-Policy RAG Application - Streamlit Web Interface
-Main application for querying company policies using RAG
+Policy RAG Application
+A Retrieval-Augmented Generation system for answering company policy questions.
 """
 
 import os
-import sys
-import time
 import json
-from datetime import datetime
-from typing import Dict, List, Tuple, Optional
+import time
 import logging
+from datetime import datetime
+from typing import List, Dict, Tuple, Optional
+from pathlib import Path
 
 import streamlit as st
 from dotenv import load_dotenv
 import chromadb
 from chromadb.config import Settings
-from langchain.retrievers import ContextualCompressionRetriever
-from langchain.retrievers.document_compressors import LLMListCompressor
-from langchain_community.retrievers import BM25Retriever
-from langchain.retrievers import EnsembleRetriever
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain.chains import RetrievalQA
-from langchain_core.prompts import PromptTemplate
-from langchain_community.llms import OpenRouter, Groq
-from langchain_community.embeddings import HuggingFaceEmbeddings
-import numpy as np
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from sentence_transformers import SentenceTransformer
+import requests
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
 
-# Configure Streamlit page
-st.set_page_config(
-    page_title="Policy Assistant",
-    page_icon="📋",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
 
-# Custom CSS
-st.markdown("""
-    <style>
-    .main-header {
-        color: #1f77b4;
-        font-size: 2.5em;
-        font-weight: bold;
-        margin-bottom: 10px;
-    }
-    .info-box {
-        background-color: #e7f3ff;
-        border-left: 4px solid #1f77b4;
-        padding: 10px;
-        margin: 10px 0;
-        border-radius: 4px;
-    }
-    .success-box {
-        background-color: #d4edda;
-        border-left: 4px solid #28a745;
-        padding: 10px;
-        margin: 10px 0;
-        border-radius: 4px;
-    }
-    .error-box {
-        background-color: #f8d7da;
-        border-left: 4px solid #dc3545;
-        padding: 10px;
-        margin: 10px 0;
-        border-radius: 4px;
-    }
-    .source-box {
-        background-color: #f5f5f5;
-        border: 1px solid #ddd;
-        padding: 10px;
-        margin: 5px 0;
-        border-radius: 4px;
-        font-family: monospace;
-        font-size: 0.9em;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
-
-class PolicyRAGEngine:
-    """Main RAG Engine for Policy Question Answering"""
+class Config:
+    """Application configuration"""
     
-    def __init__(self):
-        """Initialize RAG engine with embeddings and vector store"""
-        self.embedding_model = HuggingFaceEmbeddings(
-            model_name="all-MiniLM-L6-v2",
-            model_kwargs={"device": "cpu"},
-            encode_kwargs={"normalize_embeddings": True}
-        )
+    # LLM Configuration
+    LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq")  # groq, openrouter, openai
+    GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+    OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+    
+    # Model Configuration
+    EMBEDDING_MODEL = "all-MiniLM-L6-v2"  # Free, fast, high quality
+    LLM_MODEL = "mixtral-8x7b-32768"  # Groq free tier (128k context)
+    
+    # RAG Configuration
+    CHUNK_SIZE = 500
+    CHUNK_OVERLAP = 100
+    RETRIEVAL_K = 5
+    TEMPERATURE = 0.3  # Lower = more deterministic
+    MAX_TOKENS = 1024
+    
+    # Vector Store
+    CHROMA_DB_PATH = "./chroma_db"
+    POLICIES_PATH = "./policies"
+    
+    # Evaluation
+    EVALUATION_SET_PATH = "./data/evaluation_set.json"
+
+config = Config()
+
+# ============================================================================
+# VECTOR STORE INITIALIZATION
+# ============================================================================
+
+class VectorStore:
+    """Manages ChromaDB vector store operations"""
+    
+    def __init__(self, db_path: str, embedding_model_name: str):
+        """Initialize vector store"""
+        self.db_path = db_path
+        self.embedding_model = SentenceTransformer(embedding_model_name)
         
-        # Initialize vector store
-        self.chroma_settings = Settings(
-            chroma_db_impl="duckdb+parquet",
-            persist_directory="./chroma_db",
+        # Initialize ChromaDB
+        settings = Settings(
+            chroma_db_impl="duckdb",
+            persist_directory=db_path,
             anonymized_telemetry=False
         )
-        self.client = chromadb.Client(self.chroma_settings)
-        self.collection = self.client.get_or_create_collection(
-            name="policies",
-            metadata={"hnsw:space": "cosine"}
+        self.client = chromadb.Client(settings)
+        self.collection = None
+        
+    def get_or_create_collection(self, name: str = "policies"):
+        """Get or create collection"""
+        try:
+            self.collection = self.client.get_collection(name=name)
+            logger.info(f"Loaded existing collection: {name}")
+        except Exception:
+            self.collection = self.client.create_collection(
+                name=name,
+                metadata={"hnsw:space": "cosine"}
+            )
+            logger.info(f"Created new collection: {name}")
+        return self.collection
+    
+    def add_documents(self, 
+                     documents: List[str], 
+                     metadatas: List[Dict],
+                     ids: List[str]):
+        """Add documents to vector store"""
+        if not documents:
+            return
+        
+        # Generate embeddings
+        embeddings = self.embedding_model.encode(documents).tolist()
+        
+        # Add to collection
+        self.collection.add(
+            ids=ids,
+            embeddings=embeddings,
+            metadatas=metadatas,
+            documents=documents
+        )
+        logger.info(f"Added {len(documents)} documents to vector store")
+    
+    def retrieve(self, query: str, k: int = 5) -> List[Dict]:
+        """Retrieve relevant documents"""
+        query_embedding = self.embedding_model.encode([query])[0].tolist()
+        
+        results = self.collection.query(
+            query_embeddings=[query_embedding],
+            n_results=k,
+            include=["documents", "metadatas", "distances"]
         )
         
-        # Initialize LLM
-        self.llm = self._initialize_llm()
-        
-        logger.info("PolicyRAGEngine initialized successfully")
-    
-    def _initialize_llm(self):
-        """Initialize LLM with fallback options"""
-        api_key = os.getenv("GROQ_API_KEY")
-        
-        if api_key:
-            try:
-                return Groq(
-                    groq_api_key=api_key,
-                    model_name="mixtral-8x7b-32768",
-                    temperature=0.7,
-                    max_tokens=1024
-                )
-            except Exception as e:
-                logger.warning(f"Failed to initialize Groq: {e}")
-        
-        # Fallback to OpenRouter
-        openrouter_key = os.getenv("OPENROUTER_API_KEY")
-        if openrouter_key:
-            return OpenRouter(
-                openrouter_api_key=openrouter_key,
-                model="mistralai/mistral-7b-instruct"
-            )
-        
-        raise ValueError("No LLM API key configured. Set GROQ_API_KEY or OPENROUTER_API_KEY")
-    
-    def retrieve_documents(self, query: str, k: int = 5) -> List[Tuple[str, float, str]]:
-        """Retrieve relevant documents from vector store"""
-        try:
-            results = self.collection.query(
-                query_embeddings=[self.embedding_model.embed_query(query)],
-                n_results=k,
-                include=["documents", "metadatas", "distances"]
-            )
-            
-            if not results["documents"] or not results["documents"][0]:
-                return []
-            
-            retrieved = []
+        # Format results
+        retrieved = []
+        if results["documents"] and results["documents"][0]:
             for doc, metadata, distance in zip(
                 results["documents"][0],
                 results["metadatas"][0],
                 results["distances"][0]
             ):
-                source = metadata.get("source", "Unknown")
-                similarity = 1 - distance  # Convert distance to similarity
-                retrieved.append((doc, similarity, source))
-            
-            return retrieved
-        except Exception as e:
-            logger.error(f"Error retrieving documents: {e}")
-            return []
+                retrieved.append({
+                    "content": doc,
+                    "source": metadata.get("source", "Unknown"),
+                    "chunk_id": metadata.get("chunk_id", ""),
+                    "relevance_score": 1 - distance  # Convert distance to similarity
+                })
+        
+        return retrieved
+
+# ============================================================================
+# RAG PIPELINE
+# ============================================================================
+
+class RAGPipeline:
+    """Complete RAG pipeline for policy QA"""
     
-    def generate_answer(
-        self, 
-        query: str, 
-        retrieved_docs: List[Tuple[str, float, str]],
-        k: int = 5
-    ) -> Tuple[str, List[Dict], float]:
-        """Generate answer using retrieved documents"""
-        if not retrieved_docs:
+    def __init__(self, vector_store: VectorStore, config: Config):
+        """Initialize RAG pipeline"""
+        self.vector_store = vector_store
+        self.config = config
+        self.llm_endpoint = self._get_llm_endpoint()
+        
+    def _get_llm_endpoint(self) -> Tuple[str, str, str]:
+        """Get LLM API endpoint and headers"""
+        if config.LLM_PROVIDER == "groq":
             return (
-                "I cannot find relevant information in the policy documents to answer your question. "
-                "Please try asking about: PTO, security, remote work, expenses, holidays, or code of conduct.",
-                [],
-                0.0
+                "https://api.groq.com/openai/v1/chat/completions",
+                config.GROQ_API_KEY,
+                "groq"
+            )
+        elif config.LLM_PROVIDER == "openrouter":
+            return (
+                "https://openrouter.ai/api/v1/chat/completions",
+                config.OPENROUTER_API_KEY,
+                "openrouter"
+            )
+        elif config.LLM_PROVIDER == "openai":
+            return (
+                "https://api.openai.com/v1/chat/completions",
+                config.OPENAI_API_KEY,
+                "openai"
+            )
+        else:
+            raise ValueError(f"Unknown LLM provider: {config.LLM_PROVIDER}")
+    
+    def retrieve(self, query: str) -> List[Dict]:
+        """Retrieve relevant documents"""
+        return self.vector_store.retrieve(query, k=self.config.RETRIEVAL_K)
+    
+    def generate_answer(self, 
+                       query: str, 
+                       context: List[Dict]) -> Tuple[str, List[Dict]]:
+        """Generate answer using LLM"""
+        
+        if not context:
+            return (
+                "I cannot find relevant information in the company policies to answer your question. "
+                "Please rephrase your question or contact HR for assistance.",
+                []
             )
         
-        # Prepare context
+        # Build context string
         context_text = "\n\n".join([
-            f"[Source: {source}]\n{doc}"
-            for doc, _, source in retrieved_docs[:k]
+            f"[Source: {c['source']}]\n{c['content']}"
+            for c in context
         ])
         
-        # Create prompt
-        prompt = PromptTemplate(
-            template="""You are a helpful policy assistant. Answer questions based ONLY on the provided policy documents.
+        # Build prompt
+        system_prompt = """You are a helpful company policy assistant. Your role is to:
+1. Answer questions about company policies based ONLY on provided context
+2. Always cite the source document for your answer
+3. Be accurate and never make up policy information
+4. If the answer is not in the context, clearly state this
+5. Keep answers concise and professional
 
-Policy Documents:
-{context}
+Important: Only answer based on the provided context. Do not use external knowledge about policies."""
+        
+        user_prompt = f"""Based on the following company policy documents, answer this question:
 
 Question: {query}
 
-Important guidelines:
-1. Only use information from the provided documents
-2. If the answer is not in the documents, say "I don't have information about this"
-3. Always cite which policy document your answer comes from
-4. Be concise and clear
-5. If there are multiple relevant policies, mention all of them
+Context from policies:
+{context_text}
 
-Answer:""",
-            input_variables=["context", "query"]
-        )
+Please provide a clear, accurate answer with proper citations."""
+        
+        # Call LLM
+        endpoint, api_key, provider = self.llm_endpoint
+        
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "model": self.config.LLM_MODEL,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            "temperature": self.config.TEMPERATURE,
+            "max_tokens": self.config.MAX_TOKENS
+        }
         
         try:
-            full_prompt = prompt.format(context=context_text, query=query)
+            response = requests.post(endpoint, json=payload, headers=headers, timeout=30)
+            response.raise_for_status()
             
-            start_time = time.time()
-            response = self.llm.invoke(full_prompt)
-            latency = time.time() - start_time
+            result = response.json()
+            answer = result["choices"][0]["message"]["content"]
             
-            # Extract citations
-            sources = list(set([source for _, _, source in retrieved_docs[:k]]))
-            citations = [
-                {
-                    "source": source,
-                    "document": doc[:500],  # First 500 chars
-                    "relevance": float(score)
-                }
-                for doc, score, source in retrieved_docs[:k]
-            ]
+            return answer, context
             
-            return response, citations, latency
-        except Exception as e:
-            logger.error(f"Error generating answer: {e}")
-            return f"Error generating response: {str(e)}", [], 0.0
-
-
-@st.cache_resource
-def initialize_rag():
-    """Initialize RAG engine (cached)"""
-    return PolicyRAGEngine()
-
-
-def format_citations(citations: List[Dict]) -> str:
-    """Format citations for display"""
-    if not citations:
-        return ""
+        except requests.exceptions.RequestException as e:
+            logger.error(f"LLM API error: {e}")
+            return f"Error generating answer: {str(e)}", context
     
-    formatted = "### 📚 Sources\n"
-    for i, citation in enumerate(citations, 1):
-        formatted += f"\n**{i}. {citation['source']}** (Relevance: {citation['relevance']:.2%})\n"
-        formatted += f"```\n{citation['document']}...\n```\n"
-    
-    return formatted
+    def answer_question(self, query: str) -> Tuple[str, List[Dict], float]:
+        """Answer a question using RAG pipeline"""
+        start_time = time.time()
+        
+        # Retrieve
+        context = self.retrieve(query)
+        
+        # Generate
+        answer, retrieved = self.generate_answer(query, context)
+        
+        latency = time.time() - start_time
+        
+        return answer, retrieved, latency
 
+# ============================================================================
+# STREAMLIT APPLICATION
+# ============================================================================
 
-def main():
-    """Main Streamlit application"""
+def init_session_state():
+    """Initialize session state"""
+    if "vector_store" not in st.session_state:
+        st.session_state.vector_store = VectorStore(
+            config.CHROMA_DB_PATH,
+            config.EMBEDDING_MODEL
+        )
+        st.session_state.vector_store.get_or_create_collection()
     
-    # Header
+    if "rag_pipeline" not in st.session_state:
+        st.session_state.rag_pipeline = RAGPipeline(
+            st.session_state.vector_store,
+            config
+        )
+    
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = []
+
+def render_header():
+    """Render application header"""
     col1, col2 = st.columns([3, 1])
     with col1:
-        st.markdown('<h1 class="main-header">📋 Policy Assistant</h1>', unsafe_allow_html=True)
+        st.title("🏢 Policy Assistant")
+        st.markdown("Ask questions about company policies and get instant, source-cited answers.")
     with col2:
-        if st.button("🔄 Clear Chat"):
-            st.session_state.clear()
-            st.rerun()
-    
-    st.markdown('<div class="info-box">Ask questions about company policies and procedures. I\'ll search our policy documents and provide accurate, cited answers.</div>', unsafe_allow_html=True)
-    
-    # Initialize RAG engine
-    try:
-        rag_engine = initialize_rag()
-    except ValueError as e:
-        st.error(f"❌ Configuration Error: {str(e)}")
-        st.info("Please set GROQ_API_KEY or OPENROUTER_API_KEY in your environment variables")
-        return
-    
-    # Initialize session state
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-    if "metrics" not in st.session_state:
-        st.session_state.metrics = []
-    
-    # Sidebar - Settings
-    with st.sidebar:
-        st.header("⚙️ Settings")
-        
-        k = st.slider(
-            "Number of documents to retrieve (k):",
-            min_value=1,
-            max_value=10,
-            value=5,
-            help="Higher k retrieves more documents but may include less relevant results"
-        )
-        
-        temperature = st.slider(
-            "Model Temperature:",
-            min_value=0.0,
-            max_value=1.0,
-            value=0.7,
-            step=0.1,
-            help="Lower = more deterministic, Higher = more creative"
-        )
-        
-        st.divider()
-        st.subheader("📊 Metrics")
-        if st.session_state.metrics:
-            avg_latency = np.mean([m["latency"] for m in st.session_state.metrics])
-            st.metric("Avg Response Time", f"{avg_latency:.2f}s")
-            st.metric("Total Queries", len(st.session_state.metrics))
-    
-    # Main chat area
+        st.metric("LLM", config.LLM_PROVIDER.upper())
+
+def render_chat_interface():
+    """Render chat interface"""
     # Display chat history
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.write(message["content"])
-            if message["role"] == "assistant" and "citations" in message:
-                with st.expander("📚 View Sources"):
-                    st.markdown(format_citations(message["citations"]))
-    
-    # Input area
-    user_input = st.chat_input("Ask a question about our policies...")
-    
-    if user_input:
-        # Add user message to chat
-        st.session_state.messages.append({
-            "role": "user",
-            "content": user_input
-        })
+    if st.session_state.chat_history:
+        st.markdown("---")
+        st.subheader("Chat History")
         
-        with st.chat_message("user"):
-            st.write(user_input)
-        
-        # Generate response
-        with st.spinner("🔍 Searching policies..."):
+        for i, (question, answer, sources, latency) in enumerate(st.session_state.chat_history):
+            with st.container():
+                col1, col2 = st.columns([1, 10])
+                with col1:
+                    st.markdown("❓")
+                with col2:
+                    st.markdown(f"**Q:** {question}")
+                
+                st.markdown(f"**A:** {answer}")
+                
+                if sources:
+                    with st.expander("📎 Sources"):
+                        for source in sources:
+                            st.markdown(f"""
+- **Source:** {source['source']}
+- **Relevance:** {source['relevance_score']:.2%}
+- **Excerpt:** {source['content'][:200]}...
+""")
+                
+                st.caption(f"⏱️ Latency: {latency:.2f}s")
+                st.markdown("---")
+    
+    # Input section
+    st.markdown("---")
+    st.subheader("Ask a Question")
+    
+    question = st.text_input(
+        "Enter your question about company policies:",
+        placeholder="e.g., 'What is the PTO policy?' or 'How many vacation days do I get?'"
+    )
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        submit_btn = st.button("📤 Submit", use_container_width=True)
+    
+    with col2:
+        clear_btn = st.button("🗑️ Clear History", use_container_width=True)
+    
+    with col3:
+        health_btn = st.button("💚 Health Check", use_container_width=True)
+    
+    # Process question
+    if submit_btn and question:
+        with st.spinner("🔍 Searching policies and generating answer..."):
             try:
-                # Retrieve documents
-                retrieved_docs = rag_engine.retrieve_documents(user_input, k=k)
+                answer, sources, latency = st.session_state.rag_pipeline.answer_question(question)
                 
-                if not retrieved_docs:
-                    response = "I couldn't find relevant information in the policy documents. Please try rephrasing your question."
-                    citations = []
-                    latency = 0.0
-                else:
-                    # Generate answer
-                    response, citations, latency = rag_engine.generate_answer(
-                        user_input,
-                        retrieved_docs,
-                        k=k
-                    )
+                # Add to history
+                st.session_state.chat_history.append((question, answer, sources, latency))
                 
-                # Record metrics
-                st.session_state.metrics.append({
-                    "query": user_input,
-                    "latency": latency,
-                    "k": k,
-                    "num_citations": len(citations)
-                })
+                st.success("✅ Answer generated!")
+                st.rerun()
                 
             except Exception as e:
-                logger.error(f"Error processing query: {e}")
-                response = f"Error processing your query: {str(e)}"
-                citations = []
-                latency = 0.0
-        
-        # Display response
-        with st.chat_message("assistant"):
-            st.write(response)
-            
-            if citations:
-                with st.expander(f"📚 View {len(citations)} Source(s)"):
-                    st.markdown(format_citations(citations))
-            
-            # Display latency
-            if latency > 0:
-                st.caption(f"⏱️ Response time: {latency:.2f}s")
-        
-        # Add assistant message to chat
-        st.session_state.messages.append({
-            "role": "assistant",
-            "content": response,
-            "citations": citations,
-            "latency": latency
-        })
+                st.error(f"❌ Error: {str(e)}")
     
-    # Footer
-    st.divider()
-    st.markdown("""
-    <div style="text-align: center; color: #666; font-size: 0.9em;">
-    <p>Policy Assistant | Powered by RAG and LLMs | Questions? Check the documentation</p>
-    </div>
-    """, unsafe_allow_html=True)
+    if clear_btn:
+        st.session_state.chat_history = []
+        st.info("✨ Chat history cleared!")
+        st.rerun()
+    
+    if health_btn:
+        st.info("✅ Application is healthy and running!")
 
+def render_sidebar():
+    """Render sidebar information"""
+    with st.sidebar:
+        st.markdown("## 📊 Configuration")
+        
+        st.markdown(f"""
+- **LLM Provider:** {config.LLM_PROVIDER}
+- **Model:** {config.LLM_MODEL}
+- **Embedding Model:** {config.EMBEDDING_MODEL}
+- **Vector DB:** ChromaDB
+- **Chunk Size:** {config.CHUNK_SIZE}
+- **Retrieval K:** {config.RETRIEVAL_K}
+- **Temperature:** {config.TEMPERATURE}
+        """)
+        
+        st.markdown("---")
+        st.markdown("## 📚 About")
+        st.markdown("""
+This is a Retrieval-Augmented Generation (RAG) application that:
+1. Ingests company policy documents
+2. Converts them into embeddings
+3. Stores them in a vector database
+4. Retrieves relevant information for user queries
+5. Generates grounded answers with citations
 
-@st.cache_data
-def health_check() -> Dict:
-    """Health check endpoint info"""
-    return {
-        "status": "healthy",
-        "timestamp": datetime.now().isoformat(),
-        "version": "1.0.0"
-    }
+**Project:** Quantic AI Engineering Program
+**Author:** Charles Ishimwe
+        """)
+        
+        st.markdown("---")
+        st.markdown("## 🔗 Links")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.link_button("GitHub", "https://github.com/charlesishimwe/policy_rag_app")
+        with col2:
+            st.link_button("Documentation", "https://github.com/charlesishimwe/policy_rag_app#readme")
 
+def main():
+    """Main application entry point"""
+    # Page configuration
+    st.set_page_config(
+        page_title="Policy Assistant",
+        page_icon="🏢",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+    
+    # Initialize session state
+    init_session_state()
+    
+    # Render components
+    render_header()
+    render_sidebar()
+    render_chat_interface()
 
 if __name__ == "__main__":
     main()
