@@ -1,283 +1,404 @@
+"""
+Policy RAG Application - Streamlit Web Interface
+Main application for querying company policies using RAG
+"""
+
 import os
-import traceback
+import sys
+import time
+import json
+from datetime import datetime
+from typing import Dict, List, Tuple, Optional
+import logging
+
 import streamlit as st
+from dotenv import load_dotenv
+import chromadb
+from chromadb.config import Settings
+from langchain.retrievers import ContextualCompressionRetriever
+from langchain.retrievers.document_compressors import LLMListCompressor
+from langchain_community.retrievers import BM25Retriever
+from langchain.retrievers import EnsembleRetriever
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain.chains import RetrievalQA
+from langchain_core.prompts import PromptTemplate
+from langchain_community.llms import OpenRouter, Groq
+from langchain_community.embeddings import HuggingFaceEmbeddings
+import numpy as np
 
-# Safe imports (prevents full app crash)
-try:
-    from pypdf import PdfReader
-except Exception:
-    PdfReader = None
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
-try:
-    from sentence_transformers import SentenceTransformer
-except Exception:
-    SentenceTransformer = None
+# Load environment variables
+load_dotenv()
 
-try:
-    import chromadb
-except Exception:
-    chromadb = None
+# Configure Streamlit page
+st.set_page_config(
+    page_title="Policy Assistant",
+    page_icon="📋",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-
-# =========================
-# CONFIG
-# =========================
-st.set_page_config(page_title="Policy RAG Assistant", layout="wide")
-
-DATA_DIR = "data"
-CHROMA_DIR = "chroma_db"
-EMBED_MODEL_NAME = "all-MiniLM-L6-v2"
-
-
-# =========================
-# SAFE UTILITIES
-# =========================
-def safe_read_pdf(file_path):
-    """Read PDF safely without crashing app."""
-    if PdfReader is None:
-        return []
-
-    try:
-        reader = PdfReader(file_path)
-        pages = []
-        for page in reader.pages:
-            try:
-                text = page.extract_text()
-                if text:
-                    pages.append(text)
-            except Exception:
-                continue
-        return pages
-    except Exception as e:
-        st.warning(f"PDF read error: {str(e)}")
-        return []
-
-
-def safe_chunk(text, chunk_size=500, overlap=100):
-    """Robust text chunking."""
-    try:
-        chunks = []
-        text = text.replace("\n", " ")
-        start = 0
-
-        while start < len(text):
-            end = start + chunk_size
-            chunks.append(text[start:end])
-            start += chunk_size - overlap
-
-        return [c for c in chunks if c.strip()]
-    except Exception:
-        return [text[:500]] if text else []
-
-
-# =========================
-# INIT EMBEDDINGS MODEL
-# =========================
-@st.cache_resource
-def load_embedder():
-    try:
-        if SentenceTransformer is None:
-            return None
-        return SentenceTransformer(EMBED_MODEL_NAME)
-    except Exception:
-        return None
+# Custom CSS
+st.markdown("""
+    <style>
+    .main-header {
+        color: #1f77b4;
+        font-size: 2.5em;
+        font-weight: bold;
+        margin-bottom: 10px;
+    }
+    .info-box {
+        background-color: #e7f3ff;
+        border-left: 4px solid #1f77b4;
+        padding: 10px;
+        margin: 10px 0;
+        border-radius: 4px;
+    }
+    .success-box {
+        background-color: #d4edda;
+        border-left: 4px solid #28a745;
+        padding: 10px;
+        margin: 10px 0;
+        border-radius: 4px;
+    }
+    .error-box {
+        background-color: #f8d7da;
+        border-left: 4px solid #dc3545;
+        padding: 10px;
+        margin: 10px 0;
+        border-radius: 4px;
+    }
+    .source-box {
+        background-color: #f5f5f5;
+        border: 1px solid #ddd;
+        padding: 10px;
+        margin: 5px 0;
+        border-radius: 4px;
+        font-family: monospace;
+        font-size: 0.9em;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 
-# =========================
-# INIT CHROMA DB
-# =========================
-@st.cache_resource
-def load_vector_db():
-    if chromadb is None:
-        return None
-
-    try:
-        client = chromadb.PersistentClient(path=CHROMA_DIR)
-        collection = client.get_or_create_collection("policies")
-        return collection
-    except Exception:
-        return None
-
-
-# =========================
-# INGEST DOCUMENTS
-# =========================
-def ingest_documents(embedder, db):
-    """Load all docs safely into vector DB."""
-    if embedder is None or db is None:
-        return
-
-    try:
-        if not os.path.exists(DATA_DIR):
-            os.makedirs(DATA_DIR, exist_ok=True)
-            return
-
-        doc_id = 0
-
-        for file in os.listdir(DATA_DIR):
-            file_path = os.path.join(DATA_DIR, file)
-
-            if file.endswith(".pdf"):
-                pages = safe_read_pdf(file_path)
-                content_list = pages
-            else:
-                try:
-                    with open(file_path, "r", encoding="utf-8") as f:
-                        content_list = [f.read()]
-                except Exception:
-                    continue
-
-            for content in content_list:
-                chunks = safe_chunk(content)
-
-                for chunk in chunks:
-                    try:
-                        emb = embedder.encode(chunk).tolist()
-
-                        db.add(
-                            documents=[chunk],
-                            embeddings=[emb],
-                            ids=[f"doc_{doc_id}"],
-                            metadatas=[{"source": file}]
-                        )
-                        doc_id += 1
-                    except Exception:
-                        continue
-
-    except Exception as e:
-        st.error(f"Ingestion error: {str(e)}")
-
-
-# =========================
-# RETRIEVAL
-# =========================
-def retrieve(query, embedder, db, k=3):
-    if embedder is None or db is None:
-        return []
-
-    try:
-        q_emb = embedder.encode(query).tolist()
-
-        results = db.query(
-            query_embeddings=[q_emb],
-            n_results=k
+class PolicyRAGEngine:
+    """Main RAG Engine for Policy Question Answering"""
+    
+    def __init__(self):
+        """Initialize RAG engine with embeddings and vector store"""
+        self.embedding_model = HuggingFaceEmbeddings(
+            model_name="all-MiniLM-L6-v2",
+            model_kwargs={"device": "cpu"},
+            encode_kwargs={"normalize_embeddings": True}
         )
-
-        docs = results.get("documents", [[]])[0]
-        metas = results.get("metadatas", [[]])[0]
-
-        return list(zip(docs, metas))
-
-    except Exception:
-        return []
-
-
-# =========================
-# GENERATION (SAFE MODE)
-# =========================
-def generate_answer(query, contexts):
-    """Safe answer generator (no hallucination)."""
-
-    try:
-        if not contexts:
-            return "I could not find relevant policy information in the documents."
-
-        context_text = "\n\n".join(
-            [f"[SOURCE: {m.get('source','unknown')}]\n{c}" for c, m in contexts]
+        
+        # Initialize vector store
+        self.chroma_settings = Settings(
+            chroma_db_impl="duckdb+parquet",
+            persist_directory="./chroma_db",
+            anonymized_telemetry=False
         )
-
-        prompt = f"""
-You are a strict policy assistant.
-
-RULES:
-- Only use the provided context
-- If answer is not in context say "Not found in policy documents"
-- Always cite sources
-
-CONTEXT:
-{context_text}
-
-QUESTION:
-{query}
-
-ANSWER:
-"""
-
-        # OPTIONAL: If OpenAI key exists
-        if os.getenv("OPENAI_API_KEY"):
+        self.client = chromadb.Client(self.chroma_settings)
+        self.collection = self.client.get_or_create_collection(
+            name="policies",
+            metadata={"hnsw:space": "cosine"}
+        )
+        
+        # Initialize LLM
+        self.llm = self._initialize_llm()
+        
+        logger.info("PolicyRAGEngine initialized successfully")
+    
+    def _initialize_llm(self):
+        """Initialize LLM with fallback options"""
+        api_key = os.getenv("GROQ_API_KEY")
+        
+        if api_key:
             try:
-                from openai import OpenAI
-                client = OpenAI()
-
-                resp = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=0
+                return Groq(
+                    groq_api_key=api_key,
+                    model_name="mixtral-8x7b-32768",
+                    temperature=0.7,
+                    max_tokens=1024
                 )
-                return resp.choices[0].message.content
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to initialize Groq: {e}")
+        
+        # Fallback to OpenRouter
+        openrouter_key = os.getenv("OPENROUTER_API_KEY")
+        if openrouter_key:
+            return OpenRouter(
+                openrouter_api_key=openrouter_key,
+                model="mistralai/mistral-7b-instruct"
+            )
+        
+        raise ValueError("No LLM API key configured. Set GROQ_API_KEY or OPENROUTER_API_KEY")
+    
+    def retrieve_documents(self, query: str, k: int = 5) -> List[Tuple[str, float, str]]:
+        """Retrieve relevant documents from vector store"""
+        try:
+            results = self.collection.query(
+                query_embeddings=[self.embedding_model.embed_query(query)],
+                n_results=k,
+                include=["documents", "metadatas", "distances"]
+            )
+            
+            if not results["documents"] or not results["documents"][0]:
+                return []
+            
+            retrieved = []
+            for doc, metadata, distance in zip(
+                results["documents"][0],
+                results["metadatas"][0],
+                results["distances"][0]
+            ):
+                source = metadata.get("source", "Unknown")
+                similarity = 1 - distance  # Convert distance to similarity
+                retrieved.append((doc, similarity, source))
+            
+            return retrieved
+        except Exception as e:
+            logger.error(f"Error retrieving documents: {e}")
+            return []
+    
+    def generate_answer(
+        self, 
+        query: str, 
+        retrieved_docs: List[Tuple[str, float, str]],
+        k: int = 5
+    ) -> Tuple[str, List[Dict], float]:
+        """Generate answer using retrieved documents"""
+        if not retrieved_docs:
+            return (
+                "I cannot find relevant information in the policy documents to answer your question. "
+                "Please try asking about: PTO, security, remote work, expenses, holidays, or code of conduct.",
+                [],
+                0.0
+            )
+        
+        # Prepare context
+        context_text = "\n\n".join([
+            f"[Source: {source}]\n{doc}"
+            for doc, _, source in retrieved_docs[:k]
+        ])
+        
+        # Create prompt
+        prompt = PromptTemplate(
+            template="""You are a helpful policy assistant. Answer questions based ONLY on the provided policy documents.
 
-        # FALLBACK MODE (NO API)
-        return f"""
-⚠️ Running in fallback mode (no LLM API key).
+Policy Documents:
+{context}
 
-Based on documents:
+Question: {query}
 
-{context_text[:1500]}
+Important guidelines:
+1. Only use information from the provided documents
+2. If the answer is not in the documents, say "I don't have information about this"
+3. Always cite which policy document your answer comes from
+4. Be concise and clear
+5. If there are multiple relevant policies, mention all of them
 
-QUESTION: {query}
-
-NOTE: Install OpenAI key for better responses.
-"""
-
-    except Exception:
-        return "Error generating response."
-
-
-# =========================
-# UI
-# =========================
-st.title("📄 Policy RAG Assistant (Zero-Crash Version)")
-
-embedder = load_embedder()
-db = load_vector_db()
-
-# Ingest only once per session
-if "ingested" not in st.session_state:
-    ingest_documents(embedder, db)
-    st.session_state.ingested = True
-
-
-# Health status
-st.sidebar.header("System Status")
-st.sidebar.write("Embedder:", "OK" if embedder else "FAILED")
-st.sidebar.write("Vector DB:", "OK" if db else "FAILED")
-st.sidebar.write("Documents ingested:", st.session_state.get("ingested", False))
+Answer:""",
+            input_variables=["context", "query"]
+        )
+        
+        try:
+            full_prompt = prompt.format(context=context_text, query=query)
+            
+            start_time = time.time()
+            response = self.llm.invoke(full_prompt)
+            latency = time.time() - start_time
+            
+            # Extract citations
+            sources = list(set([source for _, _, source in retrieved_docs[:k]]))
+            citations = [
+                {
+                    "source": source,
+                    "document": doc[:500],  # First 500 chars
+                    "relevance": float(score)
+                }
+                for doc, score, source in retrieved_docs[:k]
+            ]
+            
+            return response, citations, latency
+        except Exception as e:
+            logger.error(f"Error generating answer: {e}")
+            return f"Error generating response: {str(e)}", [], 0.0
 
 
-# Chat UI
-query = st.text_input("Ask a policy question:")
+@st.cache_resource
+def initialize_rag():
+    """Initialize RAG engine (cached)"""
+    return PolicyRAGEngine()
 
-if st.button("Ask"):
+
+def format_citations(citations: List[Dict]) -> str:
+    """Format citations for display"""
+    if not citations:
+        return ""
+    
+    formatted = "### 📚 Sources\n"
+    for i, citation in enumerate(citations, 1):
+        formatted += f"\n**{i}. {citation['source']}** (Relevance: {citation['relevance']:.2%})\n"
+        formatted += f"```\n{citation['document']}...\n```\n"
+    
+    return formatted
+
+
+def main():
+    """Main Streamlit application"""
+    
+    # Header
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.markdown('<h1 class="main-header">📋 Policy Assistant</h1>', unsafe_allow_html=True)
+    with col2:
+        if st.button("🔄 Clear Chat"):
+            st.session_state.clear()
+            st.rerun()
+    
+    st.markdown('<div class="info-box">Ask questions about company policies and procedures. I\'ll search our policy documents and provide accurate, cited answers.</div>', unsafe_allow_html=True)
+    
+    # Initialize RAG engine
     try:
-        with st.spinner("Thinking..."):
-            contexts = retrieve(query, embedder, db)
-            answer = generate_answer(query, contexts)
+        rag_engine = initialize_rag()
+    except ValueError as e:
+        st.error(f"❌ Configuration Error: {str(e)}")
+        st.info("Please set GROQ_API_KEY or OPENROUTER_API_KEY in your environment variables")
+        return
+    
+    # Initialize session state
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+    if "metrics" not in st.session_state:
+        st.session_state.metrics = []
+    
+    # Sidebar - Settings
+    with st.sidebar:
+        st.header("⚙️ Settings")
+        
+        k = st.slider(
+            "Number of documents to retrieve (k):",
+            min_value=1,
+            max_value=10,
+            value=5,
+            help="Higher k retrieves more documents but may include less relevant results"
+        )
+        
+        temperature = st.slider(
+            "Model Temperature:",
+            min_value=0.0,
+            max_value=1.0,
+            value=0.7,
+            step=0.1,
+            help="Lower = more deterministic, Higher = more creative"
+        )
+        
+        st.divider()
+        st.subheader("📊 Metrics")
+        if st.session_state.metrics:
+            avg_latency = np.mean([m["latency"] for m in st.session_state.metrics])
+            st.metric("Avg Response Time", f"{avg_latency:.2f}s")
+            st.metric("Total Queries", len(st.session_state.metrics))
+    
+    # Main chat area
+    # Display chat history
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.write(message["content"])
+            if message["role"] == "assistant" and "citations" in message:
+                with st.expander("📚 View Sources"):
+                    st.markdown(format_citations(message["citations"]))
+    
+    # Input area
+    user_input = st.chat_input("Ask a question about our policies...")
+    
+    if user_input:
+        # Add user message to chat
+        st.session_state.messages.append({
+            "role": "user",
+            "content": user_input
+        })
+        
+        with st.chat_message("user"):
+            st.write(user_input)
+        
+        # Generate response
+        with st.spinner("🔍 Searching policies..."):
+            try:
+                # Retrieve documents
+                retrieved_docs = rag_engine.retrieve_documents(user_input, k=k)
+                
+                if not retrieved_docs:
+                    response = "I couldn't find relevant information in the policy documents. Please try rephrasing your question."
+                    citations = []
+                    latency = 0.0
+                else:
+                    # Generate answer
+                    response, citations, latency = rag_engine.generate_answer(
+                        user_input,
+                        retrieved_docs,
+                        k=k
+                    )
+                
+                # Record metrics
+                st.session_state.metrics.append({
+                    "query": user_input,
+                    "latency": latency,
+                    "k": k,
+                    "num_citations": len(citations)
+                })
+                
+            except Exception as e:
+                logger.error(f"Error processing query: {e}")
+                response = f"Error processing your query: {str(e)}"
+                citations = []
+                latency = 0.0
+        
+        # Display response
+        with st.chat_message("assistant"):
+            st.write(response)
+            
+            if citations:
+                with st.expander(f"📚 View {len(citations)} Source(s)"):
+                    st.markdown(format_citations(citations))
+            
+            # Display latency
+            if latency > 0:
+                st.caption(f"⏱️ Response time: {latency:.2f}s")
+        
+        # Add assistant message to chat
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": response,
+            "citations": citations,
+            "latency": latency
+        })
+    
+    # Footer
+    st.divider()
+    st.markdown("""
+    <div style="text-align: center; color: #666; font-size: 0.9em;">
+    <p>Policy Assistant | Powered by RAG and LLMs | Questions? Check the documentation</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-        st.subheader("Answer")
-        st.write(answer)
 
-        st.subheader("Sources")
-        for doc, meta in contexts:
-            st.markdown(f"**Source:** {meta.get('source','unknown')}")
-            st.caption(doc[:300] + "...")
-
-    except Exception as e:
-        st.error("Something went wrong, but the app did NOT crash.")
-        st.code(traceback.format_exc())
+@st.cache_data
+def health_check() -> Dict:
+    """Health check endpoint info"""
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "version": "1.0.0"
+    }
 
 
-# Safe footer
-st.markdown("---")
-st.markdown("🔒 Built with crash-safe RAG architecture")
+if __name__ == "__main__":
+    main()
