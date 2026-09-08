@@ -15,7 +15,6 @@ import streamlit as st
 from dotenv import load_dotenv
 import chromadb
 from chromadb.config import Settings
-from langchain.text_splitter import RecursiveCharacterTextSplitter
 from sentence_transformers import SentenceTransformer
 import requests
 
