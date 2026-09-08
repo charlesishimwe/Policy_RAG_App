@@ -1,13 +1,13 @@
 """
-Policy RAG Copilot
-==================
+Policy RAG Copilot - Hardened Production UI
+============================================
 
-Production-oriented Streamlit interface for the Policy RAG application.
+Streamlit RAG application for company policy Q&A.
 
 Architecture:
     User Question
         ↓
-    Input Validation
+    Validation
         ↓
     Query Embedding
         ↓
@@ -15,7 +15,7 @@ Architecture:
         ↓
     Relevance Filtering
         ↓
-    Context Construction
+    Context Protection
         ↓
     LLM Generation
         ↓
@@ -23,21 +23,38 @@ Architecture:
         ↓
     Answer + Sources + Metrics
 
-Compatible with the current ingest.py:
-    Chroma path: ./chroma_db
-    Collection: policy_docs
-    Embedding: all-MiniLM-L6-v2
+Compatible with:
+    ChromaDB:
+        ./chroma_db
+
+    Collection:
+        policy_docs
+
+    Embedding:
+        all-MiniLM-L6-v2
+
+    LLM:
+        Groq or OpenRouter
+
+Design goals:
+    - Graceful failure handling
+    - No raw exceptions exposed to users
+    - Cached expensive resources
+    - Bounded memory/context
+    - Strong policy-only guardrails
+    - Source citations
+    - Performance instrumentation
+    - Professional enterprise UI
 """
 
 from __future__ import annotations
 
-import io
-import json
+import html
 import logging
 import os
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -49,16 +66,28 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.llms import Groq, OpenRouter
 
 
-# ============================================================================
-# APPLICATION CONFIGURATION
-# ============================================================================
+# =============================================================================
+# ENVIRONMENT
+# =============================================================================
 
 load_dotenv()
 
+
+# =============================================================================
+# APPLICATION CONFIGURATION
+# =============================================================================
+
 BASE_DIR = Path(__file__).resolve().parent
 
-CHROMA_DIR = BASE_DIR / "chroma_db"
-POLICIES_DIR = BASE_DIR / "policies"
+CHROMA_DIR = BASE_DIR / os.getenv(
+    "CHROMA_DIR",
+    "chroma_db",
+)
+
+POLICIES_DIR = BASE_DIR / os.getenv(
+    "POLICIES_DIR",
+    "policies",
+)
 
 COLLECTION_NAME = os.getenv(
     "CHROMA_COLLECTION",
@@ -70,34 +99,110 @@ EMBEDDING_MODEL_NAME = os.getenv(
     "all-MiniLM-L6-v2",
 )
 
-DEFAULT_TOP_K = int(os.getenv("DEFAULT_TOP_K", "5"))
-MAX_TOP_K = int(os.getenv("MAX_TOP_K", "8"))
-
-MAX_QUERY_LENGTH = int(
-    os.getenv("MAX_QUERY_LENGTH", "1000")
+DEFAULT_TOP_K = max(
+    1,
+    min(
+        int(os.getenv("DEFAULT_TOP_K", "5")),
+        10,
+    ),
 )
 
-MAX_CONTEXT_CHARS = int(
-    os.getenv("MAX_CONTEXT_CHARS", "18000")
+MAX_TOP_K = max(
+    DEFAULT_TOP_K,
+    min(
+        int(os.getenv("MAX_TOP_K", "8")),
+        10,
+    ),
 )
 
-MAX_RESPONSE_TOKENS = int(
-    os.getenv("MAX_RESPONSE_TOKENS", "700")
+MAX_QUERY_LENGTH = max(
+    100,
+    int(
+        os.getenv(
+            "MAX_QUERY_LENGTH",
+            "1000",
+        )
+    ),
 )
 
-MIN_RELEVANCE_SCORE = float(
-    os.getenv("MIN_RELEVANCE_SCORE", "0.20")
+MAX_CONTEXT_CHARS = max(
+    4000,
+    int(
+        os.getenv(
+            "MAX_CONTEXT_CHARS",
+            "16000",
+        )
+    ),
+)
+
+MAX_CHUNK_CHARS = max(
+    1000,
+    int(
+        os.getenv(
+            "MAX_CHUNK_CHARS",
+            "4500",
+        )
+    ),
+)
+
+MAX_RESPONSE_TOKENS = max(
+    100,
+    min(
+        int(
+            os.getenv(
+                "MAX_RESPONSE_TOKENS",
+                "700",
+            )
+        ),
+        2000,
+    ),
+)
+
+MIN_RELEVANCE_SCORE = max(
+    0.0,
+    min(
+        float(
+            os.getenv(
+                "MIN_RELEVANCE_SCORE",
+                "0.20",
+            )
+        ),
+        1.0,
+    ),
 )
 
 APP_VERSION = os.getenv(
     "APP_VERSION",
-    "2.0.0",
+    "3.0.0",
+)
+
+LLM_TEMPERATURE = max(
+    0.0,
+    min(
+        float(
+            os.getenv(
+                "LLM_TEMPERATURE",
+                "0.1",
+            )
+        ),
+        1.0,
+    ),
+)
+
+GROQ_MODEL = os.getenv(
+    "GROQ_MODEL",
+    "llama-3.1-8b-instant",
+)
+
+OPENROUTER_MODEL = os.getenv(
+    "OPENROUTER_MODEL",
+    "mistralai/mistral-7b-instruct",
 )
 
 
-# ============================================================================
+# =============================================================================
 # LOGGING
-# ============================================================================
+# =============================================================================
 
 logging.basicConfig(
     level=logging.INFO,
@@ -109,12 +214,14 @@ logging.basicConfig(
     ),
 )
 
-logger = logging.getLogger("policy-rag-app")
+logger = logging.getLogger(
+    "policy-rag-copilot"
+)
 
 
-# ============================================================================
-# STREAMLIT CONFIGURATION
-# ============================================================================
+# =============================================================================
+# STREAMLIT PAGE
+# =============================================================================
 
 st.set_page_config(
     page_title="Policy Copilot",
@@ -124,167 +231,551 @@ st.set_page_config(
 )
 
 
-# ============================================================================
-# CUSTOM UI
-# ============================================================================
+# =============================================================================
+# GLOBAL UI
+# =============================================================================
 
 st.markdown(
     """
 <style>
 
 :root {
-    --primary: #2563eb;
-    --primary-dark: #1d4ed8;
-    --background: #f8fafc;
-    --card: #ffffff;
-    --border: #e2e8f0;
-    --text: #0f172a;
-    --muted: #64748b;
-    --success: #16a34a;
-    --warning: #d97706;
-    --danger: #dc2626;
+
+    /* =========================================================
+       SIX PRIMARY COLORS
+       ========================================================= */
+
+    --navy: #0F172A;
+    --blue: #2563EB;
+    --purple: #7C3AED;
+    --teal: #0D9488;
+    --green: #16A34A;
+    --amber: #D97706;
+
+    /* Supporting colors */
+
+    --red: #DC2626;
+    --white: #FFFFFF;
+    --slate-50: #F8FAFC;
+    --slate-100: #F1F5F9;
+    --slate-200: #E2E8F0;
+    --slate-400: #94A3B8;
+    --slate-500: #64748B;
+    --slate-700: #334155;
+    --slate-900: #0F172A;
 }
+
+
+/* =========================================================
+   APPLICATION
+   ========================================================= */
 
 .stApp {
-    background: var(--background);
+
+    background:
+        radial-gradient(
+            circle at top left,
+            rgba(37, 99, 235, 0.08),
+            transparent 30%
+        ),
+        radial-gradient(
+            circle at top right,
+            rgba(124, 58, 237, 0.07),
+            transparent 30%
+        ),
+        var(--slate-50);
+
 }
+
+
+/* =========================================================
+   MAIN CONTAINER
+   ========================================================= */
 
 .block-container {
-    max-width: 1200px;
-    padding-top: 2rem;
+
+    max-width: 1250px;
+
+    padding-top: 1.5rem;
     padding-bottom: 4rem;
+
 }
 
-/* Header */
+
+/* =========================================================
+   HERO
+   ========================================================= */
 
 .hero {
+
     background:
         linear-gradient(
             135deg,
-            #1e3a8a 0%,
-            #2563eb 55%,
-            #3b82f6 100%
+            var(--navy) 0%,
+            var(--blue) 42%,
+            var(--purple) 72%,
+            var(--teal) 100%
         );
-    padding: 2rem 2.2rem;
-    border-radius: 18px;
-    margin-bottom: 1.5rem;
-    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+
+    border-radius: 24px;
+
+    padding: 2.2rem;
+
+    margin-bottom: 1.4rem;
+
+    box-shadow:
+        0 18px 45px
+        rgba(15, 23, 42, 0.18);
+
+    position: relative;
+
+    overflow: hidden;
+
 }
+
+
+.hero::after {
+
+    content: "";
+
+    position: absolute;
+
+    width: 220px;
+    height: 220px;
+
+    right: -70px;
+    top: -80px;
+
+    border-radius: 50%;
+
+    background:
+        rgba(255,255,255,0.09);
+
+}
+
 
 .hero-title {
+
     color: white;
-    font-size: 2.2rem;
-    font-weight: 800;
+
+    font-size: 2.35rem;
+
+    font-weight: 850;
+
+    letter-spacing: -0.03em;
+
     margin: 0;
+
 }
+
 
 .hero-subtitle {
-    color: #dbeafe;
+
+    color: #DBEAFE;
+
     font-size: 1rem;
-    margin-top: 0.5rem;
+
+    margin-top: 0.55rem;
+
 }
 
-/* Cards */
+
+.hero-badge {
+
+    display: inline-block;
+
+    margin-top: 1rem;
+
+    padding: 0.35rem 0.7rem;
+
+    border-radius: 999px;
+
+    background:
+        rgba(255,255,255,0.13);
+
+    color: white;
+
+    font-size: 0.75rem;
+
+    font-weight: 700;
+
+}
+
+
+/* =========================================================
+   CARDS
+   ========================================================= */
+
+.card {
+
+    background: var(--white);
+
+    border:
+        1px solid var(--slate-200);
+
+    border-radius: 16px;
+
+    padding: 1.2rem;
+
+    box-shadow:
+        0 5px 20px
+        rgba(15, 23, 42, 0.05);
+
+}
+
 
 .metric-card {
-    background: white;
-    border: 1px solid var(--border);
-    border-radius: 14px;
+
+    background: var(--white);
+
+    border:
+        1px solid var(--slate-200);
+
+    border-radius: 16px;
+
     padding: 1rem;
+
     min-height: 105px;
-    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+
+    box-shadow:
+        0 5px 20px
+        rgba(15, 23, 42, 0.04);
+
+    transition:
+        transform 0.15s ease,
+        box-shadow 0.15s ease;
+
 }
+
+
+.metric-card:hover {
+
+    transform: translateY(-2px);
+
+    box-shadow:
+        0 10px 28px
+        rgba(15, 23, 42, 0.08);
+
+}
+
 
 .metric-label {
-    color: var(--muted);
-    font-size: 0.78rem;
-    font-weight: 600;
+
+    color: var(--slate-500);
+
+    font-size: 0.72rem;
+
+    font-weight: 750;
+
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+
+    letter-spacing: 0.07em;
+
 }
+
 
 .metric-value {
-    color: var(--text);
-    font-size: 1.5rem;
-    font-weight: 800;
+
+    color: var(--navy);
+
+    font-size: 1.45rem;
+
+    font-weight: 850;
+
     margin-top: 0.25rem;
+
 }
 
-/* Source cards */
+
+/* =========================================================
+   STATUS COLORS
+   ========================================================= */
+
+.status-blue {
+
+    color: var(--blue);
+
+    font-weight: 750;
+
+}
+
+
+.status-green {
+
+    color: var(--green);
+
+    font-weight: 750;
+
+}
+
+
+.status-amber {
+
+    color: var(--amber);
+
+    font-weight: 750;
+
+}
+
+
+.status-red {
+
+    color: var(--red);
+
+    font-weight: 750;
+
+}
+
+
+/* =========================================================
+   SOURCE CARDS
+   ========================================================= */
 
 .source-card {
-    background: #f8fafc;
-    border: 1px solid var(--border);
-    border-radius: 12px;
+
+    background:
+        linear-gradient(
+            135deg,
+            #FFFFFF,
+            #F8FAFC
+        );
+
+    border:
+        1px solid var(--slate-200);
+
+    border-left:
+        4px solid var(--teal);
+
+    border-radius: 13px;
+
     padding: 1rem;
-    margin-bottom: 0.75rem;
+
+    margin-bottom: 0.8rem;
+
 }
+
 
 .source-title {
-    font-weight: 700;
-    color: #1e293b;
+
+    color: var(--navy);
+
+    font-weight: 800;
+
 }
+
+
+.source-meta {
+
+    color: var(--slate-500);
+
+    font-size: 0.78rem;
+
+    margin-top: 0.2rem;
+
+}
+
 
 .source-score {
-    color: #2563eb;
-    font-size: 0.85rem;
-    font-weight: 600;
+
+    color: var(--blue);
+
+    font-weight: 750;
+
 }
+
 
 .source-snippet {
-    color: #475569;
+
+    color: var(--slate-700);
+
     font-size: 0.88rem;
-    margin-top: 0.5rem;
-    line-height: 1.55;
+
+    line-height: 1.6;
+
+    margin-top: 0.6rem;
+
 }
 
-/* Status */
 
-.status-good {
-    color: #15803d;
-    font-weight: 700;
+/* =========================================================
+   ANSWER CARD
+   ========================================================= */
+
+.answer-card {
+
+    background: white;
+
+    border:
+        1px solid var(--slate-200);
+
+    border-left:
+        5px solid var(--blue);
+
+    border-radius: 17px;
+
+    padding: 1.4rem;
+
+    margin-top: 1rem;
+
+    box-shadow:
+        0 8px 28px
+        rgba(15,23,42,0.06);
+
 }
 
-.status-warning {
-    color: #b45309;
-    font-weight: 700;
+
+.answer-label {
+
+    color: var(--blue);
+
+    font-size: 0.75rem;
+
+    font-weight: 800;
+
+    text-transform: uppercase;
+
+    letter-spacing: 0.08em;
+
 }
 
-.status-bad {
-    color: #b91c1c;
-    font-weight: 700;
+
+.answer-text {
+
+    color: var(--slate-900);
+
+    font-size: 1rem;
+
+    line-height: 1.75;
+
+    margin-top: 0.55rem;
+
 }
 
-/* Welcome */
+
+/* =========================================================
+   WELCOME
+   ========================================================= */
 
 .welcome-card {
-    background: white;
-    border: 1px solid var(--border);
-    border-radius: 16px;
+
+    background:
+
+        linear-gradient(
+            135deg,
+            rgba(37,99,235,0.05),
+            rgba(124,58,237,0.05),
+            rgba(13,148,136,0.05)
+        );
+
+    border:
+        1px solid var(--slate-200);
+
+    border-radius: 18px;
+
     padding: 1.5rem;
-    margin: 1rem 0;
+
+    margin-top: 1rem;
+
 }
+
 
 .welcome-title {
+
+    color: var(--navy);
+
     font-size: 1.2rem;
-    font-weight: 750;
-    color: var(--text);
+
+    font-weight: 850;
+
 }
+
 
 .welcome-text {
-    color: var(--muted);
-    line-height: 1.6;
+
+    color: var(--slate-500);
+
+    line-height: 1.65;
+
 }
 
-/* Footer */
+
+/* =========================================================
+   BUTTONS
+   ========================================================= */
+
+.stButton > button {
+
+    border-radius: 10px;
+
+    font-weight: 750;
+
+    border:
+        1px solid var(--slate-200);
+
+    transition:
+        all 0.15s ease;
+
+}
+
+
+.stButton > button:hover {
+
+    transform: translateY(-1px);
+
+    border-color: var(--blue);
+
+}
+
+
+/* =========================================================
+   CHAT INPUT
+   ========================================================= */
+
+.stChatInput {
+
+    border-radius: 16px;
+
+}
+
+
+/* =========================================================
+   SIDEBAR
+   ========================================================= */
+
+section[data-testid="stSidebar"] {
+
+    background:
+        linear-gradient(
+            180deg,
+            #F8FAFC 0%,
+            #EEF2FF 100%
+        );
+
+    border-right:
+        1px solid var(--slate-200);
+
+}
+
+
+/* =========================================================
+   FOOTER
+   ========================================================= */
 
 .footer {
+
     text-align: center;
-    color: var(--muted);
-    font-size: 0.8rem;
+
+    color: var(--slate-400);
+
+    font-size: 0.78rem;
+
     margin-top: 3rem;
+
     padding-top: 1rem;
-    border-top: 1px solid var(--border);
+
+    border-top:
+        1px solid var(--slate-200);
+
 }
 
 </style>
@@ -293,336 +784,543 @@ st.markdown(
 )
 
 
-# ============================================================================
+# =============================================================================
 # DATA MODELS
-# ============================================================================
+# =============================================================================
 
 @dataclass
 class RetrievedDocument:
+
     text: str
+
     score: float
+
     source: str
+
     filename: str
+
     chunk_id: str
-    metadata: Dict[str, Any]
+
+    metadata: Dict[str, Any] = field(
+        default_factory=dict
+    )
 
 
 @dataclass
 class RAGResponse:
+
     answer: str
+
     citations: List[Dict[str, Any]]
+
     retrieval_latency: float
+
     generation_latency: float
+
     total_latency: float
+
     retrieved_count: int
+
     grounded_context: bool
 
+    provider: str = "unknown"
 
-# ============================================================================
-# UTILITY FUNCTIONS
-# ============================================================================
-
-def utc_now() -> str:
-    """Return current UTC timestamp."""
-    return datetime.now(timezone.utc).isoformat()
+    error: Optional[str] = None
 
 
-def safe_float(value: Any, default: float = 0.0) -> float:
-    """Safely convert a value to float."""
+# =============================================================================
+# SAFE HELPERS
+# =============================================================================
+
+def safe_float(
+    value: Any,
+    default: float = 0.0,
+) -> float:
+
     try:
+
         return float(value)
-    except (TypeError, ValueError):
+
+    except (
+        TypeError,
+        ValueError,
+        OverflowError,
+    ):
+
         return default
 
 
-def clean_query(query: str) -> str:
-    """Normalize user query."""
-    if not query:
+def safe_int(
+    value: Any,
+    default: int = 0,
+) -> int:
+
+    try:
+
+        return int(value)
+
+    except (
+        TypeError,
+        ValueError,
+        OverflowError,
+    ):
+
+        return default
+
+
+def utc_now() -> str:
+
+    return datetime.now(
+        timezone.utc
+    ).isoformat()
+
+
+def clean_query(
+    query: Any,
+) -> str:
+
+    if query is None:
+
         return ""
 
-    query = query.replace("\x00", " ")
-    query = re.sub(r"\s+", " ", query)
+    try:
+
+        query = str(query)
+
+    except Exception:
+
+        return ""
+
+    query = query.replace(
+        "\x00",
+        " ",
+    )
+
+    query = re.sub(
+        r"\s+",
+        " ",
+        query,
+    )
+
     return query.strip()
 
 
-def validate_query(query: str) -> Tuple[bool, str]:
-    """Validate incoming user query."""
+def validate_query(
+    query: str,
+) -> Tuple[bool, str]:
 
     query = clean_query(query)
 
     if not query:
-        return False, "Please enter a question."
 
-    if len(query) > MAX_QUERY_LENGTH:
         return (
             False,
-            f"Your question is too long. "
-            f"Please keep it under {MAX_QUERY_LENGTH} characters.",
+            "Please enter a question.",
         )
 
     if len(query) < 3:
-        return False, "Please enter a more specific question."
+
+        return (
+            False,
+            "Please enter a more specific question.",
+        )
+
+    if len(query) > MAX_QUERY_LENGTH:
+
+        return (
+            False,
+            (
+                f"Your question is too long. "
+                f"Please keep it under "
+                f"{MAX_QUERY_LENGTH} characters."
+            ),
+        )
 
     return True, ""
 
 
 def truncate_text(
-    text: str,
+    text: Any,
     max_chars: int,
 ) -> str:
-    """Safely truncate text."""
+
+    try:
+
+        text = str(
+            text or ""
+        )
+
+    except Exception:
+
+        text = ""
+
+    max_chars = max(
+        1,
+        safe_int(
+            max_chars,
+            1,
+        ),
+    )
+
     if len(text) <= max_chars:
+
         return text
 
-    return text[:max_chars].rstrip() + "\n[Context truncated]"
+    return (
+        text[:max_chars].rstrip()
+        + "\n[Context truncated]"
+    )
 
 
-def normalize_source(source: str) -> str:
-    """Normalize source names for consistent citations."""
+def normalize_source(
+    source: Any,
+) -> str:
+
     if not source:
+
         return "Unknown source"
 
-    return str(source).replace("\\", "/")
+    try:
 
+        source = str(source)
 
-# ============================================================================
-# LLM CONFIGURATION
-# ============================================================================
+    except Exception:
 
-def create_llm():
-    """
-    Create LLM using environment configuration.
+        return "Unknown source"
 
-    Priority:
-        1. Groq
-        2. OpenRouter
-    """
-
-    groq_key = os.getenv("GROQ_API_KEY")
-    openrouter_key = os.getenv("OPENROUTER_API_KEY")
-
-    groq_model = os.getenv(
-        "GROQ_MODEL",
-        "llama-3.1-8b-instant",
+    source = source.replace(
+        "\\",
+        "/",
     )
 
-    openrouter_model = os.getenv(
-        "OPENROUTER_MODEL",
-        "mistralai/mistral-7b-instruct",
+    return Path(source).name or source
+
+
+def safe_html(
+    value: Any,
+) -> str:
+
+    try:
+
+        return html.escape(
+            str(value or "")
+        )
+
+    except Exception:
+
+        return ""
+
+
+# =============================================================================
+# LLM
+# =============================================================================
+
+def create_llm() -> Tuple[Any, str]:
+
+    groq_key = os.getenv(
+        "GROQ_API_KEY"
     )
 
-    temperature = float(
-        os.getenv("LLM_TEMPERATURE", "0.1")
+    openrouter_key = os.getenv(
+        "OPENROUTER_API_KEY"
     )
+
+    errors: List[str] = []
+
+
+    # -------------------------------------------------------------------------
+    # GROQ
+    # -------------------------------------------------------------------------
 
     if groq_key:
+
         try:
+
             logger.info(
-                "Initializing Groq model: %s",
-                groq_model,
+                "Initializing Groq: %s",
+                GROQ_MODEL,
             )
 
-            return Groq(
+            llm = Groq(
                 groq_api_key=groq_key,
-                model_name=groq_model,
-                temperature=temperature,
+                model_name=GROQ_MODEL,
+                temperature=LLM_TEMPERATURE,
                 max_tokens=MAX_RESPONSE_TOKENS,
             )
 
-        except Exception as exc:
-            logger.exception(
-                "Groq initialization failed: %s",
-                exc,
+            return (
+                llm,
+                "Groq",
             )
+
+        except Exception as exc:
+
+            logger.exception(
+                "Groq initialization failed."
+            )
+
+            errors.append(
+                f"Groq: {type(exc).__name__}"
+            )
+
+
+    # -------------------------------------------------------------------------
+    # OPENROUTER
+    # -------------------------------------------------------------------------
 
     if openrouter_key:
+
         try:
+
             logger.info(
-                "Initializing OpenRouter model: %s",
-                openrouter_model,
+                "Initializing OpenRouter: %s",
+                OPENROUTER_MODEL,
             )
 
-            return OpenRouter(
+            llm = OpenRouter(
                 openrouter_api_key=openrouter_key,
-                model=openrouter_model,
-                temperature=temperature,
+                model=OPENROUTER_MODEL,
+                temperature=LLM_TEMPERATURE,
                 max_tokens=MAX_RESPONSE_TOKENS,
             )
 
-        except Exception as exc:
-            logger.exception(
-                "OpenRouter initialization failed: %s",
-                exc,
+            return (
+                llm,
+                "OpenRouter",
             )
 
+        except Exception as exc:
+
+            logger.exception(
+                "OpenRouter initialization failed."
+            )
+
+            errors.append(
+                f"OpenRouter: {type(exc).__name__}"
+            )
+
+
+    logger.error(
+        "No valid LLM provider configured."
+    )
+
     raise RuntimeError(
-        "No working LLM configuration found. "
-        "Configure GROQ_API_KEY or OPENROUTER_API_KEY."
+        "No LLM provider is configured. "
+        "Set GROQ_API_KEY or OPENROUTER_API_KEY "
+        "in your environment."
     )
 
 
-# ============================================================================
+# =============================================================================
 # EMBEDDINGS
-# ============================================================================
+# =============================================================================
 
-@st.cache_resource(show_spinner=False)
+@st.cache_resource(
+    show_spinner=False
+)
 def load_embedding_model():
-    """
-    Load embedding model once per Streamlit process.
-
-    Caching prevents the model from being reloaded
-    on every Streamlit rerun.
-    """
 
     logger.info(
         "Loading embedding model: %s",
         EMBEDDING_MODEL_NAME,
     )
 
-    return HuggingFaceEmbeddings(
-        model_name=EMBEDDING_MODEL_NAME,
-        model_kwargs={
-            "device": "cpu",
-        },
-        encode_kwargs={
-            "normalize_embeddings": True,
-        },
-    )
+    try:
+
+        model = HuggingFaceEmbeddings(
+            model_name=EMBEDDING_MODEL_NAME,
+            model_kwargs={
+                "device": "cpu",
+            },
+            encode_kwargs={
+                "normalize_embeddings": True,
+            },
+        )
+
+        return model
+
+    except Exception as exc:
+
+        logger.exception(
+            "Embedding model initialization failed."
+        )
+
+        raise RuntimeError(
+            "The embedding model could not be loaded."
+        ) from exc
 
 
-# ============================================================================
-# CHROMA DATABASE
-# ============================================================================
+# =============================================================================
+# CHROMA
+# =============================================================================
 
-@st.cache_resource(show_spinner=False)
+@st.cache_resource(
+    show_spinner=False
+)
 def get_chroma_client():
-    """
-    Create persistent Chroma client.
 
-    IMPORTANT:
-    This matches the current ingest.py implementation.
-    """
+    try:
 
-    CHROMA_DIR.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+        CHROMA_DIR.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
 
-    logger.info(
-        "Opening ChromaDB: %s",
-        CHROMA_DIR,
-    )
+        return chromadb.PersistentClient(
+            path=str(CHROMA_DIR)
+        )
 
-    return chromadb.PersistentClient(
-        path=str(CHROMA_DIR)
-    )
+    except Exception as exc:
+
+        logger.exception(
+            "ChromaDB initialization failed."
+        )
+
+        raise RuntimeError(
+            "The local vector database could not be opened."
+        ) from exc
 
 
-@st.cache_resource(show_spinner=False)
+@st.cache_resource(
+    show_spinner=False
+)
 def get_collection():
-    """
-    Load the same collection used by ingest.py.
-    """
 
     client = get_chroma_client()
 
     try:
-        collection = client.get_collection(
+
+        return client.get_collection(
             name=COLLECTION_NAME
         )
 
     except Exception:
-        logger.warning(
-            "Collection '%s' does not exist yet.",
-            COLLECTION_NAME,
-        )
-
-        collection = client.get_or_create_collection(
-            name=COLLECTION_NAME,
-            metadata={
-                "hnsw:space": "cosine",
-            },
-        )
-
-    return collection
-
-
-# ============================================================================
-# RAG ENGINE
-# ============================================================================
-
-class PolicyRAGEngine:
-    """Reliable policy RAG engine."""
-
-    def __init__(self):
-        self.embedding_model = load_embedding_model()
-        self.collection = get_collection()
-        self.llm = create_llm()
-
-        logger.info(
-            "PolicyRAGEngine initialized successfully."
-        )
-
-    # ------------------------------------------------------------------------
-    # DATABASE HEALTH
-    # ------------------------------------------------------------------------
-
-    def collection_count(self) -> int:
-        """Return number of indexed chunks."""
 
         try:
-            return int(self.collection.count())
-        except Exception as exc:
-            logger.error(
-                "Unable to read Chroma count: %s",
-                exc,
+
+            return client.get_or_create_collection(
+                name=COLLECTION_NAME,
+                metadata={
+                    "hnsw:space": "cosine"
+                },
             )
+
+        except Exception as exc:
+
+            logger.exception(
+                "Chroma collection initialization failed."
+            )
+
+            raise RuntimeError(
+                "The policy vector collection could not be loaded."
+            ) from exc
+
+
+# =============================================================================
+# RAG ENGINE
+# =============================================================================
+
+class PolicyRAGEngine:
+    """
+    Hardened RAG engine.
+
+    The engine never intentionally exposes internal exceptions
+    to the Streamlit interface.
+    """
+
+    def __init__(self):
+
+        self.embedding_model = (
+            load_embedding_model()
+        )
+
+        self.collection = (
+            get_collection()
+        )
+
+        self.llm, self.provider = (
+            create_llm()
+        )
+
+    # -------------------------------------------------------------------------
+    # DATABASE
+    # -------------------------------------------------------------------------
+
+    def collection_count(self) -> int:
+
+        try:
+
+            return safe_int(
+                self.collection.count(),
+                0,
+            )
+
+        except Exception as exc:
+
+            logger.exception(
+                "Unable to read Chroma collection count."
+            )
+
             return 0
 
-    # ------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
     # RETRIEVAL
-    # ------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
 
     def retrieve_documents(
         self,
         query: str,
         k: int = DEFAULT_TOP_K,
-    ) -> List[RetrievedDocument]:
-        """
-        Retrieve relevant policy chunks.
-
-        Uses cosine distance from Chroma and converts
-        it into an approximate similarity score.
-        """
+    ) -> Tuple[
+        List[RetrievedDocument],
+        float,
+    ]:
 
         query = clean_query(query)
 
         if not query:
-            return []
+
+            return [], 0.0
 
         k = max(
             1,
-            min(k, MAX_TOP_K),
+            min(
+                safe_int(
+                    k,
+                    DEFAULT_TOP_K,
+                ),
+                MAX_TOP_K,
+            ),
         )
 
         count = self.collection_count()
 
-        if count == 0:
+        if count <= 0:
+
             logger.warning(
-                "Chroma collection is empty."
+                "Chroma collection contains no documents."
             )
-            return []
 
-        k = min(k, count)
+            return [], 0.0
 
-        retrieval_start = time.perf_counter()
+        k = min(
+            k,
+            count,
+        )
+
+        start = time.perf_counter()
 
         try:
+
             query_embedding = (
                 self.embedding_model.embed_query(
                     query
                 )
             )
+
+            if not query_embedding:
+
+                return [], 0.0
 
             results = self.collection.query(
                 query_embeddings=[
@@ -637,76 +1335,96 @@ class PolicyRAGEngine:
             )
 
         except Exception as exc:
+
             logger.exception(
-                "Chroma retrieval failed: %s",
-                exc,
+                "Retrieval failed."
             )
+
             raise RuntimeError(
-                "The policy search service is temporarily "
-                "unavailable. Please try again."
+                "Policy search is temporarily unavailable. "
+                "Please try again."
             ) from exc
 
-        elapsed = (
+        latency = (
             time.perf_counter()
-            - retrieval_start
+            - start
         )
 
-        logger.info(
-            "Retrieved %d documents in %.3fs",
-            len(results.get("documents", [[]])[0]),
-            elapsed,
+        documents = (
+            results.get(
+                "documents",
+                [[]],
+            )
+            or [[]]
         )
 
-        documents = results.get(
-            "documents",
-            [[]],
+        metadatas = (
+            results.get(
+                "metadatas",
+                [[]],
+            )
+            or [[]]
         )
 
-        metadatas = results.get(
-            "metadatas",
-            [[]],
+        distances = (
+            results.get(
+                "distances",
+                [[]],
+            )
+            or [[]]
         )
 
-        distances = results.get(
-            "distances",
-            [[]],
-        )
+        if (
+            not documents
+            or not documents[0]
+        ):
 
-        if not documents or not documents[0]:
-            return []
+            return [], latency
 
-        retrieved: List[RetrievedDocument] = []
+        retrieved: List[
+            RetrievedDocument
+        ] = []
 
         for index, text in enumerate(
             documents[0]
         ):
 
-            metadata = {}
+            metadata: Dict[str, Any] = {}
 
             if (
                 metadatas
                 and metadatas[0]
-                and index < len(metadatas[0])
-            ):
-                metadata = (
-                    metadatas[0][index]
-                    or {}
+                and index < len(
+                    metadatas[0]
                 )
+            ):
+
+                raw_metadata = (
+                    metadatas[0][index]
+                )
+
+                if isinstance(
+                    raw_metadata,
+                    dict,
+                ):
+
+                    metadata = raw_metadata
 
             distance = 1.0
 
             if (
                 distances
                 and distances[0]
-                and index < len(distances[0])
+                and index < len(
+                    distances[0]
+                )
             ):
+
                 distance = safe_float(
                     distances[0][index],
                     1.0,
                 )
 
-            # For cosine distance:
-            # similarity ≈ 1 - distance
             score = max(
                 0.0,
                 min(
@@ -725,10 +1443,10 @@ class PolicyRAGEngine:
                 )
             )
 
-            filename = str(
+            filename = normalize_source(
                 metadata.get(
                     "filename",
-                    Path(source).name,
+                    source,
                 )
             )
 
@@ -739,9 +1457,17 @@ class PolicyRAGEngine:
                 )
             )
 
+            text = str(
+                text or ""
+            ).strip()
+
+            if not text:
+
+                continue
+
             retrieved.append(
                 RetrievedDocument(
-                    text=str(text or ""),
+                    text=text,
                     score=score,
                     source=source,
                     filename=filename,
@@ -750,30 +1476,37 @@ class PolicyRAGEngine:
                 )
             )
 
-        # Sort highest similarity first.
         retrieved.sort(
             key=lambda item: item.score,
             reverse=True,
         )
 
-        return retrieved
+        logger.info(
+            "Retrieved %d documents in %.3fs",
+            len(retrieved),
+            latency,
+        )
 
-    # ------------------------------------------------------------------------
-    # RELEVANCE FILTER
-    # ------------------------------------------------------------------------
+        return (
+            retrieved,
+            latency,
+        )
+
+    # -------------------------------------------------------------------------
+    # RELEVANCE
+    # -------------------------------------------------------------------------
 
     def filter_relevant_documents(
         self,
-        documents: List[RetrievedDocument],
-    ) -> List[RetrievedDocument]:
-        """
-        Remove extremely weak retrieval results.
-
-        Always preserve the strongest result when
-        retrieval returned something.
-        """
+        documents: List[
+            RetrievedDocument
+        ],
+    ) -> List[
+        RetrievedDocument
+    ]:
 
         if not documents:
+
             return []
 
         relevant = [
@@ -783,23 +1516,29 @@ class PolicyRAGEngine:
             >= MIN_RELEVANCE_SCORE
         ]
 
-        if not relevant:
-            # Preserve strongest result.
-            return documents[:1]
+        if relevant:
 
-        return relevant
+            return relevant
 
-    # ------------------------------------------------------------------------
+        # Keep best evidence so that
+        # the application can still
+        # explicitly tell the user
+        # evidence was weak.
+
+        return documents[:1]
+
+    # -------------------------------------------------------------------------
     # CONTEXT
-    # ------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
 
     def build_context(
         self,
-        documents: List[RetrievedDocument],
+        documents: List[
+            RetrievedDocument
+        ],
     ) -> str:
-        """Build bounded context for the LLM."""
 
-        context_parts = []
+        parts: List[str] = []
 
         remaining = MAX_CONTEXT_CHARS
 
@@ -809,65 +1548,74 @@ class PolicyRAGEngine:
         ):
 
             if remaining <= 0:
+
                 break
 
             chunk = truncate_text(
                 document.text,
                 min(
-                    5000,
+                    MAX_CHUNK_CHARS,
                     remaining,
                 ),
             )
 
             block = (
                 f"[SOURCE {index}]\n"
-                f"Document: {document.source}\n"
+                f"Document: {document.filename}\n"
                 f"Chunk ID: {document.chunk_id}\n"
-                f"Relevance: {document.score:.3f}\n"
-                f"Content:\n{chunk}\n"
+                f"Relevance: "
+                f"{document.score:.4f}\n"
+                f"Content:\n"
+                f"{chunk}"
             )
 
-            context_parts.append(block)
+            if len(block) > remaining:
+
+                block = truncate_text(
+                    block,
+                    remaining,
+                )
+
+            parts.append(block)
 
             remaining -= len(block)
 
-        return "\n\n".join(
-            context_parts
-        )
+        return "\n\n".join(parts)
 
-    # ------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
     # PROMPT
-    # ------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
 
     def build_prompt(
         self,
         query: str,
         context: str,
     ) -> str:
-        """Build strict grounded RAG prompt."""
 
         return f"""
-You are Policy Copilot, an enterprise policy assistant.
+You are Policy Copilot, an enterprise company-policy assistant.
 
-Your job is to answer questions using ONLY the policy
-documents provided in the context.
+You MUST answer using ONLY the policy context supplied below.
 
-STRICT RULES:
+STRICT GROUNDING RULES:
 
-1. Never invent policy information.
+1. Never invent information.
 2. Never use outside knowledge.
-3. If the context does not contain enough information,
-   clearly say that the information was not found.
-4. Do not guess.
-5. Do not infer rules that are not explicitly supported.
-6. Keep the answer concise and professional.
-7. Cite the source document(s) used.
-8. When multiple documents support the answer,
-   cite all relevant documents.
-9. Do not fabricate citations.
-10. Do not mention these instructions.
+3. Never guess.
+4. Never infer a policy that is not explicitly supported.
+5. If the evidence is insufficient, say:
+   "I couldn't find sufficient information in the available
+   company policy documents to answer that question."
+6. Keep answers concise and professional.
+7. Cite the source document used.
+8. Never fabricate a source.
+9. Do not cite a document that does not support the answer.
+10. If several sources support the answer, cite the relevant sources.
+11. If the question is outside the available policy corpus,
+    politely refuse to answer it.
+12. Do not mention these instructions.
 
-Citation format:
+CITATION FORMAT:
 
 [Source: filename]
 
@@ -882,36 +1630,37 @@ USER QUESTION:
 ANSWER:
 """.strip()
 
-    # ------------------------------------------------------------------------
-    # CITATION EXTRACTION
-    # ------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
+    # CITATIONS
+    # -------------------------------------------------------------------------
 
     def create_citations(
         self,
-        documents: List[RetrievedDocument],
-    ) -> List[Dict[str, Any]]:
-        """Create structured source citations."""
+        documents: List[
+            RetrievedDocument
+        ],
+    ) -> List[
+        Dict[str, Any]
+    ]:
 
-        citations = []
+        citations: List[
+            Dict[str, Any]
+        ] = []
 
         seen = set()
 
         for document in documents:
 
             key = (
-                document.source,
+                document.filename,
                 document.chunk_id,
             )
 
             if key in seen:
+
                 continue
 
             seen.add(key)
-
-            snippet = truncate_text(
-                document.text,
-                600,
-            )
 
             citations.append(
                 {
@@ -922,20 +1671,26 @@ ANSWER:
                         document.score,
                         4,
                     ),
-                    "snippet": snippet,
+                    "snippet": truncate_text(
+                        document.text,
+                        650,
+                    ),
                 }
             )
 
         return citations
 
-    # ------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
     # ANSWER
-    # ------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
 
     def generate_answer(
         self,
         query: str,
-        documents: List[RetrievedDocument],
+        documents: List[
+            RetrievedDocument
+        ],
+        retrieval_latency: float,
     ) -> RAGResponse:
 
         total_start = time.perf_counter()
@@ -949,14 +1704,16 @@ ANSWER:
                     "to answer that question."
                 ),
                 citations=[],
-                retrieval_latency=0.0,
+                retrieval_latency=retrieval_latency,
                 generation_latency=0.0,
                 total_latency=(
                     time.perf_counter()
                     - total_start
+                    + retrieval_latency
                 ),
                 retrieved_count=0,
                 grounded_context=False,
+                provider=self.provider,
             )
 
         documents = (
@@ -969,95 +1726,184 @@ ANSWER:
             documents
         )
 
+        if not context.strip():
+
+            return RAGResponse(
+                answer=(
+                    "I couldn't find sufficient information "
+                    "in the available company policy documents "
+                    "to answer that question."
+                ),
+                citations=[],
+                retrieval_latency=retrieval_latency,
+                generation_latency=0.0,
+                total_latency=(
+                    time.perf_counter()
+                    - total_start
+                    + retrieval_latency
+                ),
+                retrieved_count=0,
+                grounded_context=False,
+                provider=self.provider,
+            )
+
         prompt = self.build_prompt(
             query,
             context,
         )
 
-        generation_start = time.perf_counter()
+        generation_start = (
+            time.perf_counter()
+        )
 
         try:
+
             response = self.llm.invoke(
                 prompt
+            )
+
+            generation_latency = (
+                time.perf_counter()
+                - generation_start
             )
 
         except Exception as exc:
 
             logger.exception(
-                "LLM generation failed: %s",
-                exc,
+                "LLM generation failed."
             )
 
-            raise RuntimeError(
-                "The language model could not "
-                "generate a response right now. "
-                "Please try again."
-            ) from exc
-
-        generation_latency = (
-            time.perf_counter()
-            - generation_start
-        )
+            return RAGResponse(
+                answer=(
+                    "The policy assistant could not "
+                    "generate a response right now. "
+                    "Please try again."
+                ),
+                citations=[],
+                retrieval_latency=retrieval_latency,
+                generation_latency=(
+                    time.perf_counter()
+                    - generation_start
+                ),
+                total_latency=(
+                    time.perf_counter()
+                    - total_start
+                    + retrieval_latency
+                ),
+                retrieved_count=len(
+                    documents
+                ),
+                grounded_context=True,
+                provider=self.provider,
+                error=(
+                    f"LLM failure: "
+                    f"{type(exc).__name__}"
+                ),
+            )
 
         answer = str(
             response or ""
         ).strip()
 
         if not answer:
+
             answer = (
                 "I couldn't generate a reliable "
                 "answer from the available policy documents."
             )
 
-        citations = self.create_citations(
-            documents
+        citations = (
+            self.create_citations(
+                documents
+            )
         )
 
         total_latency = (
-            time.perf_counter()
-            - total_start
+            retrieval_latency
+            + generation_latency
         )
 
         return RAGResponse(
             answer=answer,
             citations=citations,
-            retrieval_latency=0.0,
+            retrieval_latency=retrieval_latency,
             generation_latency=generation_latency,
             total_latency=total_latency,
-            retrieved_count=len(documents),
+            retrieved_count=len(
+                documents
+            ),
             grounded_context=True,
+            provider=self.provider,
         )
 
 
-# ============================================================================
+# =============================================================================
 # CACHED ENGINE
-# ============================================================================
+# =============================================================================
 
-@st.cache_resource(show_spinner=False)
+@st.cache_resource(
+    show_spinner=False
+)
 def initialize_rag_engine():
-    """Initialize RAG engine once."""
 
     return PolicyRAGEngine()
 
 
-# ============================================================================
+# =============================================================================
+# SESSION STATE
+# =============================================================================
+
+def initialize_session():
+
+    defaults = {
+
+        "messages": [],
+
+        "last_response": None,
+
+        "last_error": None,
+
+        "questions_count": 0,
+
+        "successful_answers": 0,
+
+        "failed_answers": 0,
+
+        "latencies": [],
+
+        "started_at": utc_now(),
+
+    }
+
+    for key, value in defaults.items():
+
+        if key not in st.session_state:
+
+            st.session_state[
+                key
+            ] = value
+
+
+initialize_session()
+
+
+# =============================================================================
 # UI HELPERS
-# ============================================================================
+# =============================================================================
 
 def render_metric_card(
     label: str,
     value: str,
 ):
-    """Render custom metric card."""
 
     st.markdown(
         f"""
         <div class="metric-card">
             <div class="metric-label">
-                {label}
+                {safe_html(label)}
             </div>
             <div class="metric-value">
-                {value}
+                {safe_html(value)}
             </div>
         </div>
         """,
@@ -1066,15 +1912,17 @@ def render_metric_card(
 
 
 def render_sources(
-    citations: List[Dict[str, Any]],
+    citations: List[
+        Dict[str, Any]
+    ],
 ):
-    """Render source cards."""
 
     if not citations:
+
         return
 
     st.markdown(
-        "### 📚 Sources"
+        "### 📚 Evidence & Sources"
     )
 
     for index, citation in enumerate(
@@ -1082,137 +1930,124 @@ def render_sources(
         start=1,
     ):
 
-        relevance = (
-            citation["relevance"]
+        filename = safe_html(
+            citation.get(
+                "filename",
+                "Unknown",
+            )
+        )
+
+        chunk_id = safe_html(
+            citation.get(
+                "chunk_id",
+                "Unknown",
+            )
+        )
+
+        score = safe_float(
+            citation.get(
+                "relevance",
+                0.0,
+            ),
+            0.0,
+        )
+
+        snippet = safe_html(
+            citation.get(
+                "snippet",
+                "",
+            )
         )
 
         st.markdown(
             f"""
             <div class="source-card">
+
                 <div class="source-title">
-                    {index}. 📄
-                    {citation["filename"]}
+                    {index}. 📄 {filename}
                 </div>
 
-                <div class="source-score">
-                    Relevance:
-                    {relevance:.1%}
+                <div class="source-meta">
+                    Chunk: {chunk_id}
                     &nbsp; • &nbsp;
-                    Chunk:
-                    {citation["chunk_id"]}
+                    <span class="source-score">
+                        Relevance: {score:.2%}
+                    </span>
                 </div>
 
                 <div class="source-snippet">
-                    {citation["snippet"]}
+                    {snippet}
                 </div>
+
             </div>
             """,
             unsafe_allow_html=True,
         )
 
 
-def render_system_status(
-    engine: Optional[PolicyRAGEngine],
+def render_answer(
+    response: RAGResponse,
 ):
-    """Render application health status."""
 
-    st.sidebar.markdown(
-        "## 🩺 System Status"
+    answer = safe_html(
+        response.answer
     )
 
-    if engine is None:
+    st.markdown(
+        f"""
+        <div class="answer-card">
 
-        st.sidebar.markdown(
-            '<span class="status-bad">'
-            '● Offline'
-            '</span>',
-            unsafe_allow_html=True,
-        )
+            <div class="answer-label">
+                🛡️ Policy Copilot Answer
+            </div>
 
-        return
+            <div class="answer-text">
+                {answer}
+            </div>
 
-    try:
-        count = engine.collection_count()
-
-        if count > 0:
-
-            st.sidebar.markdown(
-                '<span class="status-good">'
-                '● Operational'
-                '</span>',
-                unsafe_allow_html=True,
-            )
-
-            st.sidebar.caption(
-                f"{count:,} indexed chunks"
-            )
-
-        else:
-
-            st.sidebar.markdown(
-                '<span class="status-warning">'
-                '● No documents indexed'
-                '</span>',
-                unsafe_allow_html=True,
-            )
-
-    except Exception:
-
-        st.sidebar.markdown(
-            '<span class="status-bad">'
-            '● Database error'
-            '</span>',
-            unsafe_allow_html=True,
-        )
-
-
-def export_conversation():
-    """Export conversation as JSON."""
-
-    messages = st.session_state.get(
-        "messages",
-        [],
-    )
-
-    payload = {
-        "application": "Policy Copilot",
-        "version": APP_VERSION,
-        "exported_at": utc_now(),
-        "messages": messages,
-    }
-
-    return json.dumps(
-        payload,
-        indent=2,
-        ensure_ascii=False,
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
 
-# ============================================================================
-# SESSION STATE
-# ============================================================================
+def render_welcome():
 
-def initialize_session():
-    """Initialize Streamlit session state."""
+    st.markdown(
+        """
+        <div class="welcome-card">
 
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
+            <div class="welcome-title">
+                👋 Welcome to Policy Copilot
+            </div>
 
-    if "metrics" not in st.session_state:
-        st.session_state.metrics = []
+            <div class="welcome-text">
 
-    if "last_error" not in st.session_state:
-        st.session_state.last_error = None
+                Ask questions about company policies,
+                procedures, employee requirements,
+                security rules, expenses, vacation,
+                remote work and other indexed documents.
 
+                <br><br>
 
-# ============================================================================
-# SIDEBAR
-# ============================================================================
+                <strong>
+                    Answers are grounded in the indexed
+                    policy corpus and include source evidence.
+                </strong>
+
+            </div>
+
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 
 def render_sidebar(
-    engine: Optional[PolicyRAGEngine],
+    engine: Optional[
+        PolicyRAGEngine
+    ],
 ):
-    """Render application settings."""
 
     with st.sidebar:
 
@@ -1221,209 +2056,311 @@ def render_sidebar(
         )
 
         st.caption(
-            "Enterprise RAG Policy Assistant"
+            f"Version {APP_VERSION}"
         )
 
         st.divider()
 
         st.markdown(
-            "### 🔎 Retrieval"
+            "### ⚙️ System"
         )
 
-        top_k = st.slider(
-            "Documents to retrieve",
-            min_value=1,
-            max_value=MAX_TOP_K,
-            value=min(
-                DEFAULT_TOP_K,
-                MAX_TOP_K,
-            ),
-            step=1,
-            help=(
-                "Number of policy chunks retrieved "
-                "from ChromaDB."
-            ),
-        )
+        # Database status
 
-        st.divider()
+        if engine is None:
 
-        st.markdown(
-            "### 📊 Session Metrics"
-        )
-
-        metrics = st.session_state.metrics
-
-        if metrics:
-
-            total_queries = len(metrics)
-
-            latencies = [
-                item["total_latency"]
-                for item in metrics
-                if item.get("total_latency")
-            ]
-
-            average_latency = (
-                sum(latencies)
-                / len(latencies)
-                if latencies
-                else 0
-            )
-
-            st.metric(
-                "Queries",
-                total_queries,
-            )
-
-            st.metric(
-                "Avg latency",
-                f"{average_latency:.2f}s",
+            st.error(
+                "Database: unavailable"
             )
 
         else:
 
-            st.caption(
-                "Metrics will appear after "
-                "your first question."
+            count = (
+                engine.collection_count()
             )
 
-        st.divider()
+            if count > 0:
 
-        st.markdown(
-            "### 🗄️ Knowledge Base"
-        )
-
-        if engine:
-
-            try:
-
-                count = (
-                    engine.collection_count()
+                st.success(
+                    f"Database: healthy · "
+                    f"{count:,} chunks"
                 )
 
-                st.metric(
-                    "Indexed chunks",
-                    f"{count:,}",
+            else:
+
+                st.warning(
+                    "Database: empty"
                 )
 
-                st.caption(
-                    f"Collection: `{COLLECTION_NAME}`"
-                )
+        # LLM status
 
-            except Exception:
+        if engine is not None:
 
-                st.error(
-                    "Unable to read database."
-                )
+            st.success(
+                f"LLM: {engine.provider}"
+            )
 
-        st.divider()
+        else:
 
-        st.markdown(
-            "### ⚙️ Application"
-        )
-
-        st.caption(
-            f"Version: {APP_VERSION}"
-        )
+            st.error(
+                "LLM: unavailable"
+            )
 
         st.caption(
             f"Embedding: {EMBEDDING_MODEL_NAME}"
         )
 
-        st.caption(
-            f"Vector DB: ChromaDB"
-        )
-
         st.divider()
 
-        col1, col2 = st.columns(2)
+        st.markdown(
+            "### 💡 Try asking"
+        )
 
-        with col1:
+        examples = [
+            "What is the PTO policy?",
+            "How many vacation days are provided?",
+            "What is the remote work policy?",
+            "What expenses can employees claim?",
+            "What are the password requirements?",
+        ]
+
+        for question in examples:
 
             if st.button(
-                "🧹 Clear",
+                question,
+                key=f"example_{hash(question)}",
                 use_container_width=True,
             ):
 
-                st.session_state.messages = []
-                st.session_state.metrics = []
-                st.session_state.last_error = None
+                st.session_state[
+                    "pending_question"
+                ] = question
 
                 st.rerun()
 
-        with col2:
+        st.divider()
 
-            st.download_button(
-                "⬇️ Export",
-                data=export_conversation(),
-                file_name=(
-                    "policy_copilot_conversation.json"
-                ),
-                mime="application/json",
-                use_container_width=True,
+        st.markdown(
+            "### 📊 Session"
+        )
+
+        st.write(
+            f"Questions: "
+            f"{st.session_state.questions_count}"
+        )
+
+        st.write(
+            f"Successful: "
+            f"{st.session_state.successful_answers}"
+        )
+
+        st.write(
+            f"Failed: "
+            f"{st.session_state.failed_answers}"
+        )
+
+        latencies = (
+            st.session_state.latencies
+        )
+
+        if latencies:
+
+            average = (
+                sum(latencies)
+                / len(latencies)
             )
 
-    return top_k
+            st.write(
+                f"Avg latency: "
+                f"{average:.2f}s"
+            )
+
+        st.divider()
+
+        if st.button(
+            "🧹 Clear conversation",
+            use_container_width=True,
+        ):
+
+            st.session_state.messages = []
+
+            st.session_state.last_response = None
+
+            st.session_state.last_error = None
+
+            st.rerun()
 
 
-# ============================================================================
-# CHAT HISTORY
-# ============================================================================
+# =============================================================================
+# HEALTH CHECK
+# =============================================================================
 
-def render_chat_history():
-    """Render existing conversation."""
+def get_health_status(
+    engine: Optional[
+        PolicyRAGEngine
+    ],
+) -> Dict[str, Any]:
 
-    for message in st.session_state.messages:
+    status = {
+        "status": "degraded",
+        "database": False,
+        "llm": False,
+        "documents": 0,
+        "timestamp": utc_now(),
+    }
 
-        role = message.get(
-            "role",
-            "assistant",
+    if engine is None:
+
+        return status
+
+    try:
+
+        count = (
+            engine.collection_count()
         )
 
-        content = message.get(
-            "content",
-            "",
+        status["documents"] = count
+
+        status["database"] = (
+            count > 0
         )
 
-        with st.chat_message(role):
+        status["llm"] = (
+            engine.llm is not None
+        )
 
-            st.markdown(content)
+        if (
+            status["database"]
+            and status["llm"]
+        ):
 
-            if (
-                role == "assistant"
-                and message.get("citations")
-            ):
+            status["status"] = "healthy"
 
-                with st.expander(
-                    "📚 View supporting sources"
-                ):
+        elif (
+            status["database"]
+            or status["llm"]
+        ):
 
-                    render_sources(
-                        message["citations"]
-                    )
+            status["status"] = "degraded"
 
-                latency = message.get(
-                    "total_latency"
+    except Exception as exc:
+
+        logger.exception(
+            "Health check failed."
+        )
+
+    return status
+
+
+# =============================================================================
+# QUESTION PROCESSING
+# =============================================================================
+
+def process_question(
+    engine: PolicyRAGEngine,
+    question: str,
+) -> Optional[
+    RAGResponse
+]:
+
+    question = clean_query(
+        question
+    )
+
+    valid, message = (
+        validate_query(question)
+    )
+
+    if not valid:
+
+        st.warning(message)
+
+        return None
+
+    st.session_state.questions_count += 1
+
+    with st.spinner(
+        "🔎 Searching policies and generating grounded answer..."
+    ):
+
+        try:
+
+            documents, retrieval_latency = (
+                engine.retrieve_documents(
+                    question,
+                    DEFAULT_TOP_K,
+                )
+            )
+
+            response = (
+                engine.generate_answer(
+                    question,
+                    documents,
+                    retrieval_latency,
+                )
+            )
+
+            st.session_state.last_response = (
+                response
+            )
+
+            st.session_state.latencies.append(
+                response.total_latency
+            )
+
+            # Keep only recent metrics.
+            if len(
+                st.session_state.latencies
+            ) > 100:
+
+                st.session_state.latencies = (
+                    st.session_state.latencies[
+                        -100:
+                    ]
                 )
 
-                if latency:
+            if response.error:
 
-                    st.caption(
-                        f"⏱️ {latency:.2f}s"
-                    )
+                st.session_state.failed_answers += 1
+
+            else:
+
+                st.session_state.successful_answers += 1
+
+            return response
+
+        except Exception as exc:
+
+            logger.exception(
+                "Unexpected question-processing failure."
+            )
+
+            st.session_state.failed_answers += 1
+
+            st.session_state.last_error = (
+                type(exc).__name__
+            )
+
+            # IMPORTANT:
+            # Never expose internal traceback.
+
+            st.error(
+                "The request could not be completed safely. "
+                "Please try again."
+            )
+
+            return None
 
 
-# ============================================================================
-# MAIN
-# ============================================================================
+# =============================================================================
+# MAIN APPLICATION
+# =============================================================================
 
 def main():
 
-    initialize_session()
-
-    # ------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
     # HERO
-    # ------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
 
     st.markdown(
         """
@@ -1434,8 +2371,14 @@ def main():
             </div>
 
             <div class="hero-subtitle">
-                Ask questions about company policies
-                and receive grounded, source-cited answers.
+                Enterprise Retrieval-Augmented Generation
+                for trusted company policy answers.
+            </div>
+
+            <div class="hero-badge">
+                🔵 Grounded &nbsp; • &nbsp;
+                🟣 Source-Cited &nbsp; • &nbsp;
+                🟢 Reliability-Focused
             </div>
 
         </div>
@@ -1443,11 +2386,18 @@ def main():
         unsafe_allow_html=True,
     )
 
-    # ------------------------------------------------------------------------
-    # INITIALIZE ENGINE
-    # ------------------------------------------------------------------------
 
-    engine = None
+    # -------------------------------------------------------------------------
+    # ENGINE
+    # -------------------------------------------------------------------------
+
+    engine: Optional[
+        PolicyRAGEngine
+    ] = None
+
+    engine_error: Optional[
+        str
+    ] = None
 
     try:
 
@@ -1462,162 +2412,182 @@ def main():
     except Exception as exc:
 
         logger.exception(
-            "Application initialization failed: %s",
-            exc,
+            "RAG engine initialization failed."
         )
 
+        engine_error = (
+            type(exc).__name__
+        )
+
+
+    # -------------------------------------------------------------------------
+    # SIDEBAR
+    # -------------------------------------------------------------------------
+
+    render_sidebar(
+        engine
+    )
+
+
+    # -------------------------------------------------------------------------
+    # ENGINE FAILURE
+    # -------------------------------------------------------------------------
+
+    if engine is None:
+
         st.error(
-            "⚠️ Policy Copilot could not initialize."
+            "Policy Copilot is currently unavailable."
         )
 
         st.info(
-            "Check your API keys and make sure "
-            "the policy database has been created."
+            "Check your environment variables, "
+            "embedding model installation, "
+            "ChromaDB directory, and LLM API configuration."
         )
 
         with st.expander(
-            "Technical details"
+            "Configuration checklist"
         ):
 
-            st.code(
-                str(exc)
+            st.markdown(
+                """
+                **Required configuration**
+
+                1. `GROQ_API_KEY` or `OPENROUTER_API_KEY`
+                2. ChromaDB database available
+                3. Policy documents indexed
+                4. Required Python dependencies installed
+                5. Internet connectivity for the LLM provider
+
+                The internal exception is intentionally hidden
+                from the user interface.
+                """
             )
 
-        render_system_status(
-            None
-        )
+        # Do not crash the Streamlit process.
 
         return
 
-    # ------------------------------------------------------------------------
-    # SIDEBAR
-    # ------------------------------------------------------------------------
 
-    top_k = render_sidebar(
-        engine
-    )
-
-    render_system_status(
-        engine
-    )
-
-    # ------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
     # TOP METRICS
-    # ------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
 
-    try:
+    count = (
+        engine.collection_count()
+    )
 
-        chunk_count = (
-            engine.collection_count()
-        )
+    health = get_health_status(
+        engine
+    )
 
-    except Exception:
+    cols = st.columns(4)
 
-        chunk_count = 0
-
-    col1, col2, col3, col4 = st.columns(4)
-
-    with col1:
+    with cols[0]:
 
         render_metric_card(
             "Knowledge chunks",
-            f"{chunk_count:,}",
+            f"{count:,}",
         )
 
-    with col2:
+    with cols[1]:
 
         render_metric_card(
-            "Top-K",
-            str(top_k),
+            "LLM provider",
+            engine.provider,
         )
 
-    with col3:
+    with cols[2]:
 
         render_metric_card(
-            "Embedding",
-            "MiniLM",
+            "Top-K retrieval",
+            str(DEFAULT_TOP_K),
         )
 
-    with col4:
+    with cols[3]:
 
         render_metric_card(
-            "RAG status",
-            "Ready"
-            if chunk_count > 0
-            else "Empty",
+            "System",
+            health["status"].upper(),
         )
 
-    # ------------------------------------------------------------------------
+
+    # -------------------------------------------------------------------------
+    # HEALTH NOTICE
+    # -------------------------------------------------------------------------
+
+    if count == 0:
+
+        st.warning(
+            "⚠️ Your vector database is empty. "
+            "Run the ingestion pipeline before asking "
+            "policy questions."
+        )
+
+
+    # -------------------------------------------------------------------------
     # WELCOME
-    # ------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
 
     if not st.session_state.messages:
 
-        st.markdown(
-            """
-            <div class="welcome-card">
+        render_welcome()
 
-                <div class="welcome-title">
-                    👋 Welcome to Policy Copilot
-                </div>
 
-                <div class="welcome-text">
-                    I search the indexed policy documents
-                    and answer using only the information
-                    available in the knowledge base.
-                    Every answer is accompanied by supporting
-                    source snippets when evidence is found.
-                </div>
+    # -------------------------------------------------------------------------
+    # CONVERSATION
+    # -------------------------------------------------------------------------
 
-            </div>
-            """,
-            unsafe_allow_html=True,
+    for message in (
+        st.session_state.messages
+    ):
+
+        role = message.get(
+            "role",
+            "assistant",
         )
 
-        st.markdown(
-            "### 💡 Try asking"
+        content = message.get(
+            "content",
+            "",
         )
 
-        examples = [
-            "What is the PTO policy?",
-            "How many vacation days do employees receive?",
-            "What is the remote work policy?",
-            "What are the password security requirements?",
-            "Which employee expenses are reimbursable?",
-            "What should I do if I cannot find a policy?",
-        ]
-
-        example_cols = st.columns(2)
-
-        for index, example in enumerate(
-            examples
+        if role not in (
+            "user",
+            "assistant",
         ):
 
-            with example_cols[
-                index % 2
-            ]:
+            continue
 
-                if st.button(
-                    example,
-                    use_container_width=True,
-                    key=f"example_{index}",
-                ):
+        with st.chat_message(
+            role
+        ):
 
-                    st.session_state[
-                        "pending_question"
-                    ] = example
+            st.markdown(
+                content
+            )
 
-                    st.rerun()
 
-    # ------------------------------------------------------------------------
-    # CHAT HISTORY
-    # ------------------------------------------------------------------------
+            # Render citations for
+            # assistant messages.
 
-    render_chat_history()
+            if role == "assistant":
 
-    # ------------------------------------------------------------------------
-    # USER INPUT
-    # ------------------------------------------------------------------------
+                citations = (
+                    message.get(
+                        "citations",
+                        [],
+                    )
+                )
+
+                render_sources(
+                    citations
+                )
+
+
+    # -------------------------------------------------------------------------
+    # EXAMPLE QUESTION FROM SIDEBAR
+    # -------------------------------------------------------------------------
 
     pending_question = (
         st.session_state.pop(
@@ -1626,298 +2596,283 @@ def main():
         )
     )
 
-    user_input = st.chat_input(
+
+    # -------------------------------------------------------------------------
+    # CHAT INPUT
+    # -------------------------------------------------------------------------
+
+    question = st.chat_input(
         "Ask a question about company policies..."
     )
 
     if pending_question:
-        user_input = pending_question
 
-    if not user_input:
-        return
+        question = pending_question
 
-    # ------------------------------------------------------------------------
-    # VALIDATION
-    # ------------------------------------------------------------------------
 
-    valid, validation_message = (
-        validate_query(
-            user_input
-        )
-    )
+    # -------------------------------------------------------------------------
+    # PROCESS
+    # -------------------------------------------------------------------------
 
-    if not valid:
+    if question:
 
-        st.warning(
-            validation_message
+        question = clean_query(
+            question
         )
 
-        return
+        valid, message = (
+            validate_query(
+                question
+            )
+        )
 
-    user_input = clean_query(
-        user_input
-    )
+        if not valid:
 
-    # ------------------------------------------------------------------------
-    # USER MESSAGE
-    # ------------------------------------------------------------------------
-
-    st.session_state.messages.append(
-        {
-            "role": "user",
-            "content": user_input,
-            "timestamp": utc_now(),
-        }
-    )
-
-    with st.chat_message("user"):
-
-        st.markdown(user_input)
-
-    # ------------------------------------------------------------------------
-    # RAG PIPELINE
-    # ------------------------------------------------------------------------
-
-    with st.chat_message("assistant"):
-
-        status = st.empty()
-
-        try:
-
-            status.markdown(
-                "🔎 Searching policy documents..."
+            st.warning(
+                message
             )
 
-            request_start = (
-                time.perf_counter()
+            return
+
+
+        # -------------------------------------------------------------
+        # USER MESSAGE
+        # -------------------------------------------------------------
+
+        st.session_state.messages.append(
+            {
+                "role": "user",
+                "content": question,
+            }
+        )
+
+        with st.chat_message(
+            "user"
+        ):
+
+            st.markdown(
+                question
             )
 
-            retrieval_start = (
-                time.perf_counter()
-            )
 
-            retrieved_documents = (
-                engine.retrieve_documents(
-                    user_input,
-                    k=top_k,
+        # -------------------------------------------------------------
+        # ASSISTANT RESPONSE
+        # -------------------------------------------------------------
+
+        with st.chat_message(
+            "assistant"
+        ):
+
+            response = (
+                process_question(
+                    engine,
+                    question,
                 )
             )
 
-            retrieval_latency = (
-                time.perf_counter()
-                - retrieval_start
-            )
+            if response is not None:
 
-            if not retrieved_documents:
-
-                total_latency = (
-                    time.perf_counter()
-                    - request_start
+                render_answer(
+                    response
                 )
 
-                answer = (
-                    "I couldn't find sufficient "
-                    "information in the available "
-                    "company policy documents to "
-                    "answer that question.\n\n"
-                    "Please try asking about a policy "
-                    "covered by the knowledge base."
+                render_sources(
+                    response.citations
                 )
 
-                citations = []
+                # -----------------------------------------------------
+                # PERFORMANCE
+                # -----------------------------------------------------
 
-                generation_latency = 0.0
-
-            else:
-
-                status.markdown(
-                    "🤖 Generating grounded answer..."
+                st.markdown(
+                    "#### ⚡ Performance"
                 )
 
-                rag_response = (
-                    engine.generate_answer(
-                        user_input,
-                        retrieved_documents,
-                    )
+                metric_cols = st.columns(
+                    4
                 )
 
-                answer = (
-                    rag_response.answer
-                )
+                with metric_cols[0]:
 
-                citations = (
-                    rag_response.citations
-                )
-
-                generation_latency = (
-                    rag_response.generation_latency
-                )
-
-                total_latency = (
-                    time.perf_counter()
-                    - request_start
-                )
-
-            status.empty()
-
-            # --------------------------------------------------------------
-            # ANSWER
-            # --------------------------------------------------------------
-
-            st.markdown(answer)
-
-            # --------------------------------------------------------------
-            # SOURCES
-            # --------------------------------------------------------------
-
-            if citations:
-
-                with st.expander(
-                    f"📚 Supporting sources "
-                    f"({len(citations)})",
-                    expanded=True,
-                ):
-
-                    render_sources(
-                        citations
+                    st.metric(
+                        "Retrieval",
+                        (
+                            f"{response.retrieval_latency:.3f}s"
+                        ),
                     )
 
-            # --------------------------------------------------------------
-            # METRICS
-            # --------------------------------------------------------------
+                with metric_cols[1]:
 
-            metric_col1, metric_col2, metric_col3 = (
-                st.columns(3)
-            )
+                    st.metric(
+                        "Generation",
+                        (
+                            f"{response.generation_latency:.3f}s"
+                        ),
+                    )
 
-            with metric_col1:
+                with metric_cols[2]:
 
-                st.caption(
-                    f"🔎 Retrieval: "
-                    f"{retrieval_latency:.2f}s"
+                    st.metric(
+                        "Total",
+                        (
+                            f"{response.total_latency:.3f}s"
+                        ),
+                    )
+
+                with metric_cols[3]:
+
+                    st.metric(
+                        "Sources",
+                        str(
+                            len(
+                                response.citations
+                            )
+                        ),
+                    )
+
+                # -----------------------------------------------------
+                # ERROR STATE
+                # -----------------------------------------------------
+
+                if response.error:
+
+                    st.warning(
+                        "The model provider returned an error. "
+                        "No unsupported answer was presented."
+                    )
+
+                # -----------------------------------------------------
+                # SAVE ASSISTANT MESSAGE
+                # -----------------------------------------------------
+
+                st.session_state.messages.append(
+                    {
+                        "role": "assistant",
+                        "content": response.answer,
+                        "citations": response.citations,
+                        "latency": response.total_latency,
+                        "provider": response.provider,
+                    }
                 )
 
-            with metric_col2:
 
-                st.caption(
-                    f"🤖 Generation: "
-                    f"{generation_latency:.2f}s"
-                )
+    # -------------------------------------------------------------------------
+    # SESSION EXPORT
+    # -------------------------------------------------------------------------
 
-            with metric_col3:
+    if st.session_state.messages:
 
-                st.caption(
-                    f"⏱️ Total: "
-                    f"{total_latency:.2f}s"
-                )
+        st.divider()
 
-            # --------------------------------------------------------------
-            # SAVE METRICS
-            # --------------------------------------------------------------
+        col1, col2 = st.columns(
+            2
+        )
 
-            st.session_state.metrics.append(
-                {
-                    "timestamp": utc_now(),
-                    "query": user_input,
-                    "top_k": top_k,
-                    "retrieved_count": len(
-                        retrieved_documents
-                    ),
-                    "citation_count": len(
-                        citations
-                    ),
-                    "retrieval_latency": (
-                        retrieval_latency
-                    ),
-                    "generation_latency": (
-                        generation_latency
-                    ),
-                    "total_latency": (
-                        total_latency
-                    ),
-                }
+        with col1:
+
+            st.markdown(
+                "### 📥 Session"
             )
 
-            # --------------------------------------------------------------
-            # SAVE ASSISTANT MESSAGE
-            # --------------------------------------------------------------
-
-            st.session_state.messages.append(
-                {
-                    "role": "assistant",
-                    "content": answer,
-                    "citations": citations,
-                    "retrieved_count": len(
-                        retrieved_documents
-                    ),
-                    "retrieval_latency": (
-                        retrieval_latency
-                    ),
-                    "generation_latency": (
-                        generation_latency
-                    ),
-                    "total_latency": (
-                        total_latency
-                    ),
-                    "timestamp": utc_now(),
-                }
+            st.caption(
+                "Conversation history is kept in this browser session."
             )
 
-        except Exception as exc:
+        with col2:
 
-            status.empty()
+            export_text = []
 
-            logger.exception(
-                "Request failed: %s",
-                exc,
-            )
-
-            error_message = (
-                "⚠️ I couldn't complete that request "
-                "because a backend component failed. "
-                "Please try again."
-            )
-
-            st.error(
-                error_message
-            )
-
-            with st.expander(
-                "Technical details"
+            for message in (
+                st.session_state.messages
             ):
 
-                st.code(
-                    str(exc)
+                role = message.get(
+                    "role",
+                    "",
+                ).upper()
+
+                content = message.get(
+                    "content",
+                    "",
                 )
 
-            st.session_state.messages.append(
-                {
-                    "role": "assistant",
-                    "content": error_message,
-                    "citations": [],
-                    "timestamp": utc_now(),
-                }
+                export_text.append(
+                    f"{role}\n{content}\n"
+                )
+
+            st.download_button(
+                label="⬇️ Export conversation",
+                data="\n".join(
+                    export_text
+                ),
+                file_name=(
+                    "policy_copilot_session.txt"
+                ),
+                mime="text/plain",
+                use_container_width=True,
             )
 
-    # ------------------------------------------------------------------------
+
+    # -------------------------------------------------------------------------
     # FOOTER
-    # ------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
 
     st.markdown(
-        """
+        f"""
         <div class="footer">
-            🛡️ Policy Copilot ·
+
+            🛡️ Policy Copilot · v{safe_html(APP_VERSION)}
+            <br>
+
             Retrieval-Augmented Generation ·
-            Source-grounded responses
+            ChromaDB · Sentence Transformers
+
+            <br><br>
+
+            Answers are generated from the indexed
+            policy corpus and should be verified against
+            the cited source documents.
+
         </div>
         """,
         unsafe_allow_html=True,
     )
 
 
-# ============================================================================
-# APPLICATION ENTRY POINT
-# ============================================================================
+# =============================================================================
+# SAFE ENTRY POINT
+# =============================================================================
 
 if __name__ == "__main__":
-    main()
+
+    try:
+
+        main()
+
+    except Exception as exc:
+
+        # Last-resort application boundary.
+        #
+        # This prevents unexpected exceptions from
+        # exposing a traceback to the end user.
+
+        logger.exception(
+            "Fatal application boundary exception."
+        )
+
+        try:
+
+            st.error(
+                "Policy Copilot encountered an unexpected "
+                "problem. Please refresh the page and try again."
+            )
+
+            st.info(
+                "If the problem continues, verify the "
+                "application configuration and dependencies."
+            )
+
+        except Exception:
+
+            # Nothing else can safely be rendered.
+            pass
