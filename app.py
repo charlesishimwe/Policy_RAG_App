@@ -1,5 +1,4 @@
-```python
-"""
+
 Policy RAG Assistant
 --------------------
 Quantic AI Engineering Project
