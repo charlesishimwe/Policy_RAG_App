@@ -1,4 +1,4 @@
-
+"""
 Policy RAG Assistant
 Streamlit RAG application for company policies.
 """
