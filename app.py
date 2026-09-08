@@ -1,8 +1,3 @@
-"""
-Policy RAG Application - Streamlit Web Interface
-Main application for querying company policies using RAG
-"""
-
 import os
 import sys
 import time
@@ -15,7 +10,6 @@ import streamlit as st
 from dotenv import load_dotenv
 import chromadb
 from chromadb.config import Settings
-from langchain.retrievers import ContextualCompressionRetriever
 from langchain.retrievers.document_compressors import LLMListCompressor
 from langchain_community.retrievers import BM25Retriever
 from langchain.retrievers import EnsembleRetriever
