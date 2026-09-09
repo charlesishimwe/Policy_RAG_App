@@ -20,13 +20,18 @@ APP_SUBTITLE = "Enterprise Policy Intelligence"
 
 TOP_K = int(os.getenv("TOP_K", "5"))
 
-# Logging is kept in the server/terminal, not displayed to users.
+
+# ============================================================
+# LOGGING
+# ============================================================
+
 logging.basicConfig(level=logging.INFO)
+
 logger = logging.getLogger("policycopilot")
 
 
 # ============================================================
-# STREAMLIT PAGE CONFIG
+# PAGE CONFIGURATION
 # ============================================================
 
 st.set_page_config(
@@ -38,29 +43,26 @@ st.set_page_config(
 
 
 # ============================================================
-# CSS ONLY
-#
-# IMPORTANT:
-# This is the ONLY HTML/CSS block in the application.
-# It is used only for styling and is never displayed as text.
+# PROFESSIONAL BANKING-STYLE UI
 # ============================================================
 
 st.markdown(
     """
     <style>
 
-    /* --------------------------------------------------------
+    /* ======================================================
        GLOBAL
-    -------------------------------------------------------- */
+    ====================================================== */
 
     .stApp {
-        background-color: #F7F9FC;
+        background-color: #F5F7FA;
+        color: #0B1220;
     }
 
     .main .block-container {
         max-width: 1180px;
-        padding-top: 30px;
-        padding-bottom: 50px;
+        padding-top: 25px;
+        padding-bottom: 60px;
     }
 
     #MainMenu {
@@ -76,112 +78,211 @@ st.markdown(
     }
 
 
-    /* --------------------------------------------------------
-       SIDEBAR
-    -------------------------------------------------------- */
+    /* ======================================================
+       TYPOGRAPHY
+    ====================================================== */
 
-    section[data-testid="stSidebar"] {
-        background-color: #FFFFFF;
-        border-right: 1px solid #E2E8F0;
+    html,
+    body,
+    [class*="css"] {
+        font-family:
+            -apple-system,
+            BlinkMacSystemFont,
+            "Segoe UI",
+            Roboto,
+            Helvetica,
+            Arial,
+            sans-serif;
     }
 
-    section[data-testid="stSidebar"] > div {
-        padding-top: 25px;
+    h1,
+    h2,
+    h3,
+    h4 {
+        color: #0B1220 !important;
     }
 
-    section[data-testid="stSidebar"] h2 {
-        color: #0F172A !important;
-    }
-
-    section[data-testid="stSidebar"] p {
+    p {
         color: #475569;
     }
 
 
-    /* --------------------------------------------------------
+    /* ======================================================
+       SIDEBAR
+    ====================================================== */
+
+    section[data-testid="stSidebar"] {
+        background-color: #FFFFFF;
+        border-right: 1px solid #D9E1EA;
+    }
+
+    section[data-testid="stSidebar"] > div {
+        padding: 28px 22px;
+    }
+
+    section[data-testid="stSidebar"] h2 {
+        color: #0B1220 !important;
+        font-weight: 800 !important;
+    }
+
+    section[data-testid="stSidebar"] h3 {
+        color: #0B1220 !important;
+        font-size: 15px !important;
+        font-weight: 700 !important;
+    }
+
+    section[data-testid="stSidebar"] p {
+        color: #475569 !important;
+        font-size: 13px;
+        line-height: 1.6;
+    }
+
+
+    /* ======================================================
        TEXT AREA
-    -------------------------------------------------------- */
+    ====================================================== */
 
     div[data-testid="stTextArea"] textarea {
         background-color: #FFFFFF !important;
-        color: #0F172A !important;
-        border: 1px solid #CBD5E1 !important;
-        border-radius: 12px !important;
+        color: #0B1220 !important;
+
+        border: 1px solid #B8C4D1 !important;
+
+        border-radius: 8px !important;
+
         font-size: 15px !important;
-        padding: 14px !important;
+
+        line-height: 1.6 !important;
+
+        padding: 16px !important;
+    }
+
+    div[data-testid="stTextArea"] textarea::placeholder {
+        color: #7A8797 !important;
     }
 
     div[data-testid="stTextArea"] textarea:focus {
-        border-color: #2563EB !important;
-        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.10) !important;
+        border-color: #155EEF !important;
+
+        box-shadow:
+            0 0 0 2px rgba(21, 94, 239, 0.12)
+            !important;
     }
 
 
-    /* --------------------------------------------------------
+    /* ======================================================
        BUTTONS
-    -------------------------------------------------------- */
+    ====================================================== */
 
     .stButton > button {
-        border-radius: 10px !important;
-        min-height: 42px !important;
+        border-radius: 8px !important;
+
+        min-height: 44px !important;
+
         font-weight: 600 !important;
-        border: 1px solid #CBD5E1 !important;
+
+        border: 1px solid #C7D0DB !important;
+
+        background-color: #FFFFFF !important;
+
+        color: #0B1220 !important;
+
+        transition: all 0.15s ease;
     }
 
     .stButton > button:hover {
-        border-color: #2563EB !important;
-        color: #2563EB !important;
-        background-color: #EFF6FF !important;
+        border-color: #155EEF !important;
+
+        color: #155EEF !important;
+
+        background-color: #F5F8FF !important;
     }
 
 
-    /* --------------------------------------------------------
+    /* ======================================================
        PRIMARY BUTTON
-    -------------------------------------------------------- */
+    ====================================================== */
 
     button[kind="primary"] {
-        background-color: #2563EB !important;
-        border-color: #2563EB !important;
-        color: white !important;
+        background-color: #155EEF !important;
+
+        border-color: #155EEF !important;
+
+        color: #FFFFFF !important;
+
+        font-weight: 700 !important;
     }
 
     button[kind="primary"]:hover {
-        background-color: #1D4ED8 !important;
-        border-color: #1D4ED8 !important;
-        color: white !important;
+        background-color: #0F4BC4 !important;
+
+        border-color: #0F4BC4 !important;
+
+        color: #FFFFFF !important;
     }
 
 
-    /* --------------------------------------------------------
-       HEADINGS
-    -------------------------------------------------------- */
+    /* ======================================================
+       METRICS
+    ====================================================== */
 
-    h1 {
-        color: #0F172A !important;
-        font-weight: 800 !important;
-        letter-spacing: -0.8px;
+    div[data-testid="stMetric"] {
+        background-color: #FFFFFF;
+
+        border: 1px solid #D9E1EA;
+
+        border-radius: 8px;
+
+        padding: 15px 18px;
     }
 
-    h2, h3, h4 {
-        color: #0F172A !important;
+    div[data-testid="stMetricLabel"] {
+        color: #64748B !important;
+    }
+
+    div[data-testid="stMetricValue"] {
+        color: #0B1220 !important;
+        font-weight: 750 !important;
     }
 
 
-    /* --------------------------------------------------------
-       DIVIDERS
-    -------------------------------------------------------- */
-
-    hr {
-        border-color: #E2E8F0 !important;
-    }
-
-
-    /* --------------------------------------------------------
-       INFO / SUCCESS / WARNING
-    -------------------------------------------------------- */
+    /* ======================================================
+       ALERTS
+    ====================================================== */
 
     div[data-testid="stAlert"] {
-        border-radius: 10px !important;
+        border-radius: 8px !important;
+    }
+
+
+    /* ======================================================
+       EXPANDERS
+    ====================================================== */
+
+    div[data-testid="stExpander"] {
+        border: 1px solid #D9E1EA !important;
+
+        border-radius: 8px !important;
+
+        background-color: #FFFFFF !important;
+    }
+
+
+    /* ======================================================
+       DIVIDERS
+    ====================================================== */
+
+    hr {
+        border-color: #D9E1EA !important;
+    }
+
+
+    /* ======================================================
+       LINK / ACCENT
+    ====================================================== */
+
+    a {
+        color: #155EEF !important;
     }
 
     </style>
@@ -191,34 +292,34 @@ st.markdown(
 
 
 # ============================================================
-# INITIALIZE RAG
+# RAG INITIALIZATION
 # ============================================================
 
 @st.cache_resource(show_spinner=False)
 def initialize_rag():
-    """
-    Initialize the RAG pipeline once and cache it.
-
-    The actual exception is logged to the server instead of
-    displaying Python code or traceback information to users.
-    """
 
     try:
+
         from rag.pipeline import RAGPipeline
 
-        pipeline = RAGPipeline(top_k=TOP_K)
+        pipeline = RAGPipeline(
+            top_k=TOP_K
+        )
 
-        logger.info("RAG pipeline initialized successfully.")
+        logger.info(
+            "PolicyCopilot RAG initialized successfully."
+        )
 
         return pipeline
 
-    except Exception:
-        logger.exception("Failed to initialize RAG pipeline.")
+    except Exception as error:
+
+        logger.exception(
+            "RAG initialization failed: %s",
+            error
+        )
 
         return None
-
-
-rag_pipeline = initialize_rag()
 
 
 # ============================================================
@@ -227,120 +328,159 @@ rag_pipeline = initialize_rag()
 
 with st.sidebar:
 
-    # Brand
     st.markdown("## 🔵 PolicyCopilot")
-    st.caption(APP_SUBTITLE)
+
+    st.caption(
+        "Enterprise Policy Intelligence"
+    )
 
     st.divider()
 
-    # Technology
+    st.markdown("### Platform")
+
+    st.markdown(
+        "**Policy Intelligence**  \n"
+        "AI-powered policy search and question answering."
+    )
+
     st.markdown("### Technology")
 
     st.markdown(
-        """
-        **RAG**  
-        Retrieval-Augmented Generation
-        """
+        "**Retrieval-Augmented Generation**  \n"
+        "Grounded responses using the company policy corpus."
     )
 
     st.markdown(
-        """
-        **Vector Database**  
-        ChromaDB
-        """
+        "**Vector Database**  \n"
+        "ChromaDB"
     )
 
     st.markdown(
-        """
-        **Embeddings**  
-        Sentence Transformers
-        """
+        "**Embeddings**  \n"
+        "Sentence Transformers"
     )
 
     st.markdown(
-        """
-        **Language Model**  
-        OpenRouter
-        """
+        "**Language Model**  \n"
+        "OpenRouter"
     )
 
     st.markdown(
-        """
-        **Interface**  
-        Streamlit
-        """
+        "**Application**  \n"
+        "Streamlit"
     )
 
     st.divider()
 
-    # Retrieval
     st.markdown("### Retrieval")
 
     st.markdown(
-        f"""
-        **Top-K:** {TOP_K}
+        f"**Top-K:** {TOP_K}"
+    )
 
-        The system retrieves the {TOP_K} most relevant policy
-        chunks before generating an answer.
-        """
+    st.caption(
+        "The system retrieves the most relevant "
+        "policy passages before generating an answer."
     )
 
     st.divider()
 
-    # Guardrails
-    st.markdown("### AI Guardrails")
+    st.markdown("### AI Controls")
 
-    st.markdown("✓ Grounded responses")
+    st.markdown("✓ Policy-grounded answers")
     st.markdown("✓ Source citations")
     st.markdown("✓ No policy invention")
-    st.markdown("✓ Out-of-scope refusal")
+    st.markdown("✓ Out-of-scope protection")
 
     st.divider()
 
-    st.caption("PolicyCopilot")
-    st.caption("Enterprise Policy Intelligence")
+    st.caption(
+        "Internal Enterprise AI Assistant"
+    )
 
 
 # ============================================================
-# MAIN BRAND
+# MAIN HEADER
 # ============================================================
 
-brand_left, brand_right = st.columns([0.7, 9])
+header_left, header_right = st.columns(
+    [0.8, 9]
+)
 
-with brand_left:
+with header_left:
+
     st.markdown("## 🔵")
 
-with brand_right:
-    st.markdown("## PolicyCopilot")
-    st.caption(APP_SUBTITLE)
+
+with header_right:
+
+    st.markdown(
+        "## PolicyCopilot"
+    )
+
+    st.caption(
+        "Enterprise Policy Intelligence"
+    )
+
+
+st.divider()
 
 
 # ============================================================
-# HERO SECTION
+# HERO
 # ============================================================
 
-st.title("Ask about your company policies")
+st.markdown(
+    "# Ask about your company policies"
+)
 
-st.write(
-    "Get accurate answers grounded in your organization's "
-    "policy knowledge base, supported by transparent source citations."
+st.markdown(
+    "Get clear, policy-grounded answers from your "
+    "organization's knowledge base, with transparent "
+    "source references."
 )
 
 
 # ============================================================
-# APPLICATION STATUS
+# SECURITY / TRUST MESSAGE
 # ============================================================
 
-if rag_pipeline is None:
+trust_col1, trust_col2, trust_col3 = st.columns(3)
 
-    st.error(
-        "PolicyCopilot is currently unavailable. "
-        "Please check the application configuration."
+with trust_col1:
+
+    st.markdown(
+        "**🔒 Policy grounded**"
     )
 
-else:
+    st.caption(
+        "Answers are based on the approved policy corpus."
+    )
 
-    st.success("Policy knowledge base ready")
+
+with trust_col2:
+
+    st.markdown(
+        "**✓ Transparent sources**"
+    )
+
+    st.caption(
+        "Supporting policy documents are shown with answers."
+    )
+
+
+with trust_col3:
+
+    st.markdown(
+        "**◉ Controlled AI**"
+    )
+
+    st.caption(
+        "The assistant is designed to avoid unsupported claims."
+    )
+
+
+st.divider()
 
 
 # ============================================================
@@ -360,7 +500,10 @@ examples = [
 
 
 def set_question(question_text):
-    st.session_state["policy_question"] = question_text
+
+    st.session_state[
+        "policy_question"
+    ] = question_text
 
 
 for index, example in enumerate(examples):
@@ -377,18 +520,19 @@ for index, example in enumerate(examples):
 
 
 # ============================================================
-# QUESTION INPUT
+# QUESTION AREA
 # ============================================================
 
 st.markdown("### Ask a policy question")
 
 question = st.text_area(
-    label="",
+    label="Policy question",
+    label_visibility="collapsed",
     key="policy_question",
-    height=125,
+    height=130,
     placeholder=(
-        "Ask a question about vacation, remote work, "
-        "expenses, security, benefits, travel..."
+        "Example: How many vacation days can I take "
+        "per year?"
     ),
 )
 
@@ -405,85 +549,106 @@ ask = st.button(
 
 
 # ============================================================
-# PROCESS QUESTION
+# ANSWER PROCESSING
 # ============================================================
 
 if ask:
 
-    # --------------------------------------------------------
-    # Validate question
-    # --------------------------------------------------------
-
     question = question.strip()
+
+
+    # --------------------------------------------------------
+    # VALIDATION
+    # --------------------------------------------------------
 
     if not question:
 
-        st.warning("Please enter a policy question.")
+        st.warning(
+            "Please enter a policy question."
+        )
 
         st.stop()
+
 
     if len(question) > 1000:
 
         st.warning(
-            "Please keep your question under 1,000 characters."
+            "Please keep your question under "
+            "1,000 characters."
         )
 
         st.stop()
 
 
     # --------------------------------------------------------
-    # Validate RAG
+    # INITIALIZE RAG ONLY WHEN NEEDED
+    #
+    # This avoids displaying a startup error to the user.
     # --------------------------------------------------------
+
+    rag_pipeline = initialize_rag()
+
 
     if rag_pipeline is None:
 
         st.error(
-            "The policy assistant is temporarily unavailable. "
-            "Please try again later."
+            "We couldn't connect to the policy knowledge "
+            "service right now. Please try again."
         )
 
         st.stop()
 
 
     # --------------------------------------------------------
-    # Run RAG
+    # EXECUTE RAG
     # --------------------------------------------------------
 
     start_time = time.perf_counter()
 
+
     try:
 
         with st.spinner(
-            "Searching policies and generating your answer..."
+            "Searching the policy knowledge base..."
         ):
 
-            result = rag_pipeline.answer(question)
+            result = rag_pipeline.answer(
+                question
+            )
 
     except Exception:
 
         logger.exception(
-            "Error while processing policy question."
+            "Policy question processing failed."
         )
 
         st.error(
-            "The policy assistant could not process your question. "
+            "We couldn't process your question right now. "
             "Please try again."
         )
 
         st.stop()
 
 
-    latency = time.perf_counter() - start_time
+    latency = (
+        time.perf_counter()
+        - start_time
+    )
 
 
     # --------------------------------------------------------
-    # Validate response
+    # VALIDATE RESULT
     # --------------------------------------------------------
 
     if not isinstance(result, dict):
 
+        logger.error(
+            "RAG pipeline returned an invalid response."
+        )
+
         st.error(
-            "The policy assistant returned an invalid response."
+            "The policy assistant returned an unexpected "
+            "response. Please try again."
         )
 
         st.stop()
@@ -511,97 +676,114 @@ if ask:
 
     st.divider()
 
-    st.markdown("### PolicyCopilot Answer")
+    st.markdown(
+        "### PolicyCopilot Answer"
+    )
 
-    # IMPORTANT:
-    # Use st.write() rather than injecting generated text
-    # into HTML. This prevents raw HTML/code from appearing
-    # incorrectly in the interface.
+    st.container(
+        border=True
+    )
 
-    st.write(answer)
+    with st.container(
+        border=True
+    ):
+
+        st.write(answer)
 
 
     # ========================================================
-    # METRICS
+    # RESPONSE INFORMATION
     # ========================================================
 
-    st.divider()
+    st.markdown("")
 
     metric1, metric2, metric3 = st.columns(3)
+
 
     with metric1:
 
         st.metric(
-            label="Response time",
-            value=f"{latency:.2f}s",
+            "Response time",
+            f"{latency:.2f}s"
         )
 
 
     with metric2:
 
         st.metric(
-            label="Sources retrieved",
-            value=len(sources),
+            "Sources retrieved",
+            len(sources)
         )
 
 
     with metric3:
 
         st.metric(
-            label="Retrieval depth",
-            value=f"Top {TOP_K}",
+            "Retrieval",
+            f"Top {TOP_K}"
         )
 
 
     # ========================================================
-    # SOURCES & EVIDENCE
+    # SOURCES
     # ========================================================
 
     if sources:
 
         st.divider()
 
-        st.markdown("### Sources & Evidence")
+        st.markdown(
+            "### Sources & Evidence"
+        )
+
+        st.caption(
+            "The following policy passages were retrieved "
+            "to support the response."
+        )
+
 
         for index, source in enumerate(
             sources,
-            start=1,
+            start=1
         ):
 
             title = source.get(
                 "title",
                 source.get(
                     "source",
-                    "Policy document",
-                ),
+                    "Policy document"
+                )
             )
 
             document_id = source.get(
                 "document_id",
-                "",
+                ""
             )
 
             section = source.get(
                 "section",
-                "Policy section",
+                "Policy section"
             )
 
             snippet = source.get(
                 "snippet",
-                "",
+                ""
             )
 
 
-            # Limit very long snippets
-            if snippet and len(snippet) > 700:
+            if snippet:
 
-                snippet = (
-                    snippet[:700]
-                    + "..."
-                )
+                if len(snippet) > 700:
+
+                    snippet = (
+                        snippet[:700]
+                        + "..."
+                    )
 
 
-            with st.container(border=True):
+            with st.container(
+                border=True
+            ):
 
                 st.markdown(
                     f"**{index}. {title}**"
@@ -615,39 +797,53 @@ if ask:
 
                 else:
 
-                    st.caption(section)
+                    st.caption(
+                        section
+                    )
 
 
                 if snippet:
 
-                    st.write(snippet)
+                    st.write(
+                        snippet
+                    )
 
 
     # ========================================================
-    # FALLBACK CITATIONS
+    # CITATIONS FALLBACK
     # ========================================================
 
     elif citations:
 
         st.divider()
 
-        st.markdown("### Citations")
+        st.markdown(
+            "### Citations"
+        )
 
         for citation in citations:
 
             title = citation.get(
                 "title",
-                "Policy document",
+                "Policy document"
             )
 
             section = citation.get(
                 "section",
-                "Policy section",
+                "Policy section"
             )
 
-            st.info(
-                f"{title} • {section}"
-            )
+            with st.container(
+                border=True
+            ):
+
+                st.markdown(
+                    f"**{title}**"
+                )
+
+                st.caption(
+                    section
+                )
 
 
     # ========================================================
@@ -657,7 +853,8 @@ if ask:
     else:
 
         st.info(
-            "No supporting policy sources were returned."
+            "No supporting policy sources were returned "
+            "for this question."
         )
 
 
@@ -668,6 +865,9 @@ if ask:
 st.divider()
 
 st.caption(
-    "PolicyCopilot · Enterprise Policy Intelligence · "
+    "PolicyCopilot · Enterprise Policy Intelligence"
+)
+
+st.caption(
     "Policy-grounded AI assistance"
 )
