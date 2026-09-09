@@ -1,34 +1,16 @@
-"""
-PolicyCopilot - Enterprise Policy RAG Assistant
-
-Streamlit application for a policy-grounded RAG assistant.
-
-Design goals:
-- Enterprise-grade UI
-- Graceful backend failure handling
-- No raw HTML visible to users
-- Source/citation transparency
-- Retrieval and response latency visibility
-- Session-based conversation history
-- Safe configuration through environment variables
-- Compatible with the existing RAGPipeline.answer() interface
-
-Run:
-    streamlit run app.py
-"""
-
-from __future__ import annotations
-
-import io
-import json
+import html
 import logging
 import os
+import re
 import time
-from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import chromadb
+import requests
 import streamlit as st
 from dotenv import load_dotenv
+from sentence_transformers import SentenceTransformer
 
 
 # ============================================================
@@ -37,18 +19,41 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+BASE_DIR = Path(__file__).resolve().parent
+
 APP_NAME = "PolicyCopilot"
 APP_SUBTITLE = "Enterprise Policy Intelligence"
 
-TOP_K_DEFAULT = int(os.getenv("TOP_K", "5"))
-CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "800"))
-CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "120"))
+CHROMA_PATH = os.getenv(
+    "CHROMA_PATH",
+    str(BASE_DIR / "chroma_db")
+)
 
-MAX_QUESTION_LENGTH = 1000
-MAX_DISPLAY_SOURCES = 5
+TOP_K = int(os.getenv("TOP_K", "5"))
 
-PAGE_TITLE = "PolicyCopilot | Enterprise Policy Intelligence"
-PAGE_ICON = "🛡️"
+EMBEDDING_MODEL = os.getenv(
+    "EMBEDDING_MODEL",
+    "sentence-transformers/all-MiniLM-L6-v2"
+)
+
+OPENROUTER_API_KEY = os.getenv(
+    "OPENROUTER_API_KEY",
+    ""
+).strip()
+
+OPENROUTER_MODEL = os.getenv(
+    "OPENROUTER_MODEL",
+    "openrouter/free"
+)
+
+OPENROUTER_URL = (
+    "https://openrouter.ai/api/v1/chat/completions"
+)
+
+COLLECTION_NAMES = [
+    "policy_docs",
+    "policy_documents",
+]
 
 
 # ============================================================
@@ -57,466 +62,21 @@ PAGE_ICON = "🛡️"
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    format="%(asctime)s | PolicyCopilot | %(levelname)s | %(message)s"
 )
 
-LOGGER = logging.getLogger("policycopilot")
+logger = logging.getLogger("PolicyCopilot")
 
 
 # ============================================================
-# STREAMLIT PAGE
+# STREAMLIT
 # ============================================================
 
 st.set_page_config(
-    page_title=PAGE_TITLE,
-    page_icon=PAGE_ICON,
+    page_title="PolicyCopilot",
+    page_icon="🛡️",
     layout="wide",
     initial_sidebar_state="expanded",
-)
-
-
-# ============================================================
-# ENTERPRISE THEME
-# ============================================================
-
-st.markdown(
-    """
-    <style>
-        /* ====================================================
-           GLOBAL
-           ==================================================== */
-
-        :root {
-            --pc-blue: #155EEF;
-            --pc-deep-blue: #0B3B91;
-            --pc-light-blue: #EAF4FF;
-            --pc-soft-blue: #F4F8FF;
-
-            --pc-green: #16A34A;
-            --pc-light-green: #ECFDF3;
-
-            --pc-white: #FFFFFF;
-            --pc-black: #0B1220;
-            --pc-gray-700: #334155;
-            --pc-gray-600: #64748B;
-            --pc-gray-500: #94A3B8;
-            --pc-gray-300: #CBD5E1;
-            --pc-border: #D9E2EC;
-            --pc-background: #F4F7FB;
-            --pc-warning: #B45309;
-            --pc-warning-bg: #FFF7ED;
-            --pc-danger: #B91C1C;
-            --pc-danger-bg: #FEF2F2;
-        }
-
-        .stApp {
-            background:
-                linear-gradient(
-                    180deg,
-                    #F7FAFF 0%,
-                    #F4F7FB 45%,
-                    #F8FAFC 100%
-                );
-            color: var(--pc-black);
-        }
-
-        .main .block-container {
-            max-width: 1500px;
-            padding-top: 1rem;
-            padding-bottom: 2rem;
-        }
-
-        /* ====================================================
-           SIDEBAR
-           ==================================================== */
-
-        section[data-testid="stSidebar"] {
-            background:
-                linear-gradient(
-                    180deg,
-                    #FFFFFF 0%,
-                    #F8FBFF 100%
-                );
-
-            border-right: 1px solid var(--pc-border);
-        }
-
-        section[data-testid="stSidebar"] > div {
-            padding-top: 1rem;
-        }
-
-        /* ====================================================
-           TOP HEADER
-           ==================================================== */
-
-        .pc-header {
-            background: var(--pc-white);
-            border: 1px solid var(--pc-border);
-            border-radius: 18px;
-            padding: 14px 20px;
-            margin-bottom: 18px;
-            box-shadow: 0 4px 18px rgba(15, 23, 42, 0.05);
-        }
-
-        .pc-header-title {
-            font-size: 1.12rem;
-            font-weight: 800;
-            color: var(--pc-black);
-            letter-spacing: -0.2px;
-        }
-
-        .pc-header-subtitle {
-            font-size: 0.78rem;
-            color: var(--pc-gray-600);
-            margin-top: 2px;
-        }
-
-        .pc-status {
-            display: inline-block;
-            padding: 5px 10px;
-            border-radius: 999px;
-            font-size: 0.72rem;
-            font-weight: 700;
-            background: var(--pc-light-green);
-            color: var(--pc-green);
-            border: 1px solid #BBF7D0;
-        }
-
-        .pc-status-neutral {
-            display: inline-block;
-            padding: 5px 10px;
-            border-radius: 999px;
-            font-size: 0.72rem;
-            font-weight: 700;
-            background: var(--pc-light-blue);
-            color: var(--pc-deep-blue);
-            border: 1px solid #BFDBFE;
-        }
-
-        /* ====================================================
-           BRAND
-           ==================================================== */
-
-        .pc-brand {
-            background: linear-gradient(
-                135deg,
-                #0B3B91 0%,
-                #155EEF 100%
-            );
-            border-radius: 18px;
-            padding: 18px;
-            color: white;
-            margin-bottom: 18px;
-            box-shadow: 0 8px 24px rgba(21, 94, 239, 0.18);
-        }
-
-        .pc-brand-row {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .pc-brand-logo {
-            width: 44px;
-            height: 44px;
-            border-radius: 13px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: rgba(255,255,255,0.16);
-            border: 1px solid rgba(255,255,255,0.24);
-            font-size: 1.25rem;
-            font-weight: 900;
-        }
-
-        .pc-brand-name {
-            font-size: 1.18rem;
-            font-weight: 850;
-        }
-
-        .pc-brand-description {
-            font-size: 0.74rem;
-            opacity: 0.82;
-            margin-top: 3px;
-        }
-
-        /* ====================================================
-           HERO
-           ==================================================== */
-
-        .pc-hero {
-            background: var(--pc-white);
-            border: 1px solid var(--pc-border);
-            border-radius: 22px;
-            padding: 30px 32px;
-            margin-bottom: 18px;
-            box-shadow: 0 8px 28px rgba(15, 23, 42, 0.05);
-        }
-
-        .pc-hero-title {
-            font-size: 2.05rem;
-            line-height: 1.15;
-            font-weight: 850;
-            color: var(--pc-black);
-            letter-spacing: -0.8px;
-        }
-
-        .pc-hero-title span {
-            color: var(--pc-blue);
-        }
-
-        .pc-hero-description {
-            max-width: 850px;
-            color: var(--pc-gray-600);
-            font-size: 0.96rem;
-            line-height: 1.6;
-            margin-top: 10px;
-        }
-
-        /* ====================================================
-           CARDS
-           ==================================================== */
-
-        .pc-card {
-            background: var(--pc-white);
-            border: 1px solid var(--pc-border);
-            border-radius: 16px;
-            padding: 17px;
-            height: 100%;
-            box-shadow: 0 4px 16px rgba(15, 23, 42, 0.035);
-        }
-
-        .pc-card-title {
-            font-size: 0.82rem;
-            font-weight: 800;
-            color: var(--pc-gray-700);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .pc-card-value {
-            font-size: 1.35rem;
-            font-weight: 850;
-            color: var(--pc-black);
-            margin-top: 7px;
-        }
-
-        .pc-card-description {
-            font-size: 0.75rem;
-            color: var(--pc-gray-600);
-            margin-top: 3px;
-        }
-
-        /* ====================================================
-           CHAT FRAME
-           ==================================================== */
-
-        .pc-chat-frame {
-            background: var(--pc-white);
-            border: 1px solid var(--pc-border);
-            border-radius: 22px;
-            padding: 22px;
-            min-height: 400px;
-            box-shadow: 0 8px 28px rgba(15, 23, 42, 0.045);
-        }
-
-        .pc-chat-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding-bottom: 14px;
-            border-bottom: 1px solid #E8EEF5;
-            margin-bottom: 16px;
-        }
-
-        .pc-chat-title {
-            font-size: 1rem;
-            font-weight: 850;
-            color: var(--pc-black);
-        }
-
-        .pc-chat-subtitle {
-            font-size: 0.76rem;
-            color: var(--pc-gray-600);
-            margin-top: 3px;
-        }
-
-        /* ====================================================
-           MESSAGE
-           ==================================================== */
-
-        .pc-message {
-            border-radius: 16px;
-            padding: 14px 16px;
-            margin: 10px 0;
-            border: 1px solid var(--pc-border);
-        }
-
-        .pc-user-message {
-            background: var(--pc-soft-blue);
-            border-color: #CFE0FF;
-        }
-
-        .pc-assistant-message {
-            background: #FFFFFF;
-        }
-
-        .pc-message-label {
-            font-size: 0.7rem;
-            font-weight: 800;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: var(--pc-gray-600);
-            margin-bottom: 5px;
-        }
-
-        .pc-message-time {
-            font-size: 0.68rem;
-            color: var(--pc-gray-500);
-            margin-top: 7px;
-        }
-
-        /* ====================================================
-           SOURCE CARDS
-           ==================================================== */
-
-        .pc-source {
-            background: #FBFDFF;
-            border: 1px solid var(--pc-border);
-            border-left: 4px solid var(--pc-blue);
-            border-radius: 12px;
-            padding: 13px;
-            margin-top: 8px;
-        }
-
-        .pc-source-title {
-            font-size: 0.82rem;
-            font-weight: 800;
-            color: var(--pc-black);
-        }
-
-        .pc-source-meta {
-            font-size: 0.7rem;
-            color: var(--pc-gray-600);
-            margin-top: 3px;
-        }
-
-        .pc-source-snippet {
-            font-size: 0.75rem;
-            line-height: 1.5;
-            color: var(--pc-gray-700);
-            margin-top: 8px;
-        }
-
-        /* ====================================================
-           EMPTY STATE
-           ==================================================== */
-
-        .pc-empty {
-            text-align: center;
-            padding: 55px 25px;
-            color: var(--pc-gray-600);
-        }
-
-        .pc-empty-icon {
-            font-size: 2.3rem;
-            margin-bottom: 10px;
-        }
-
-        .pc-empty-title {
-            font-size: 1.1rem;
-            font-weight: 800;
-            color: var(--pc-black);
-        }
-
-        .pc-empty-description {
-            max-width: 650px;
-            margin: 7px auto 0 auto;
-            font-size: 0.82rem;
-            line-height: 1.55;
-        }
-
-        /* ====================================================
-           FOOTER
-           ==================================================== */
-
-        .pc-footer {
-            text-align: center;
-            color: var(--pc-gray-500);
-            font-size: 0.7rem;
-            padding: 25px 0 5px 0;
-        }
-
-        /* ====================================================
-           BUTTONS
-           ==================================================== */
-
-        .stButton > button {
-            border-radius: 10px;
-            font-weight: 700;
-            border: 1px solid var(--pc-border);
-            transition: all 0.15s ease;
-        }
-
-        .stButton > button:hover {
-            border-color: var(--pc-blue);
-            color: var(--pc-blue);
-        }
-
-        /* ====================================================
-           INPUTS
-           ==================================================== */
-
-        div[data-baseweb="input"] > div {
-            border-radius: 12px !important;
-            border-color: var(--pc-border) !important;
-        }
-
-        textarea {
-            border-radius: 12px !important;
-        }
-
-        /* ====================================================
-           METRICS
-           ==================================================== */
-
-        div[data-testid="stMetric"] {
-            background: var(--pc-white);
-            border: 1px solid var(--pc-border);
-            border-radius: 14px;
-            padding: 12px;
-        }
-
-        /* ====================================================
-           EXPANDERS
-           ==================================================== */
-
-        div[data-testid="stExpander"] {
-            border: 1px solid var(--pc-border);
-            border-radius: 12px;
-            background: white;
-        }
-
-        /* ====================================================
-           MOBILE
-           ==================================================== */
-
-        @media (max-width: 900px) {
-            .pc-hero-title {
-                font-size: 1.55rem;
-            }
-
-            .pc-hero {
-                padding: 22px;
-            }
-
-            .pc-chat-frame {
-                padding: 15px;
-            }
-        }
-    </style>
-    """,
-    unsafe_allow_html=True,
 )
 
 
@@ -524,82 +84,638 @@ st.markdown(
 # SESSION STATE
 # ============================================================
 
-def initialize_session_state() -> None:
-    """Initialize all Streamlit session state values safely."""
+defaults = {
+    "messages": [],
+    "recent_questions": [],
+    "last_sources": [],
+    "last_latency": 0.0,
+    "last_retrieval_count": 0,
+    "pending_question": None,
+}
 
-    defaults = {
-        "chat_history": [],
-        "last_result": None,
-        "policy_question": "",
-        "top_k": TOP_K_DEFAULT,
-        "rag_error": None,
-        "rag_initialized": False,
-        "last_latency_ms": None,
-        "total_questions": 0,
-        "current_page": "Chat",
-    }
-
-    for key, value in defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = value
-
-
-initialize_session_state()
+for key, value in defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
 
 
 # ============================================================
-# SAFE IMPORT / RAG INITIALIZATION
+# UI STYLE
 # ============================================================
 
-@st.cache_resource(show_spinner=False)
-def load_rag_pipeline(top_k: int):
+st.markdown(
     """
-    Lazily initialize the RAG pipeline.
+<style>
 
-    The import happens inside the function so a missing or broken
-    RAG module does not prevent the Streamlit UI from rendering.
-    """
+:root {
+    --blue: #155EEF;
+    --blue-dark: #0B3B91;
+    --blue-light: #EAF4FF;
+    --black: #0B1220;
+    --white: #FFFFFF;
+    --gray-bg: #F5F7FA;
+    --gray-border: #E2E8F0;
+    --gray-text: #64748B;
+}
 
-    try:
-        from rag.pipeline import RAGPipeline
+.stApp {
+    background: var(--gray-bg);
+    color: var(--black);
+}
 
-        pipeline = RAGPipeline(top_k=top_k)
+.block-container {
+    max-width: 1450px;
+    padding-top: 1rem;
+    padding-bottom: 3rem;
+}
 
-        return pipeline, None
+#MainMenu {
+    visibility: hidden;
+}
 
-    except Exception as exc:
-        LOGGER.exception("RAG pipeline initialization failed")
+footer {
+    visibility: hidden;
+}
 
-        return None, (
-            "The RAG backend could not be initialized. "
-            "Please verify the RAG modules, vector database, "
-            "embedding model, environment variables, and API configuration."
-        )
+header {
+    background: transparent !important;
+}
 
 
-def get_rag_pipeline():
-    """Return cached RAG pipeline and error information."""
+/* ============================================================
+   SIDEBAR
+   ============================================================ */
 
-    pipeline, error = load_rag_pipeline(st.session_state.top_k)
+section[data-testid="stSidebar"] {
+    background: #FFFFFF;
+    border-right: 1px solid var(--gray-border);
+}
 
-    st.session_state.rag_initialized = pipeline is not None
-    st.session_state.rag_error = error
+.sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 5px 4px 22px 4px;
+}
 
-    return pipeline, error
+.sidebar-logo {
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    background: linear-gradient(
+        135deg,
+        #155EEF,
+        #0B3B91
+    );
+
+    color: white;
+    font-weight: 900;
+    font-size: 17px;
+
+    box-shadow:
+        0 8px 18px rgba(21,94,239,0.20);
+}
+
+.sidebar-title {
+    font-size: 16px;
+    font-weight: 850;
+    color: #0B1220;
+}
+
+.sidebar-subtitle {
+    font-size: 10px;
+    color: #64748B;
+    margin-top: 2px;
+}
+
+.sidebar-section {
+    margin-top: 20px;
+    margin-bottom: 8px;
+
+    color: #94A3B8;
+
+    font-size: 10px;
+    font-weight: 850;
+
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+}
+
+.sidebar-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    padding: 10px 12px;
+
+    border-radius: 10px;
+
+    background: #F8FAFC;
+
+    border: 1px solid #E2E8F0;
+
+    color: #334155;
+
+    font-size: 10px;
+    font-weight: 750;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+
+    border-radius: 50%;
+
+    background: #155EEF;
+}
+
+
+/* ============================================================
+   TOP BAR
+   ============================================================ */
+
+.topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    padding: 13px 17px;
+
+    background: #FFFFFF;
+
+    border: 1px solid #E2E8F0;
+
+    border-radius: 15px;
+
+    margin-bottom: 18px;
+
+    box-shadow:
+        0 5px 20px rgba(15,23,42,0.045);
+}
+
+.topbar-left {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+}
+
+.topbar-logo {
+    width: 38px;
+    height: 38px;
+
+    border-radius: 10px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    background: #155EEF;
+
+    color: #FFFFFF;
+
+    font-size: 15px;
+    font-weight: 900;
+}
+
+.topbar-name {
+    font-size: 14px;
+    font-weight: 850;
+    color: #0B1220;
+}
+
+.topbar-subtitle {
+    font-size: 10px;
+    color: #64748B;
+}
+
+.topbar-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.status-badge {
+    padding: 7px 11px;
+
+    border-radius: 999px;
+
+    background: #F8FAFC;
+
+    border: 1px solid #E2E8F0;
+
+    color: #334155;
+
+    font-size: 10px;
+    font-weight: 800;
+}
+
+.user-avatar {
+    width: 34px;
+    height: 34px;
+
+    border-radius: 50%;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    background: #0B1220;
+
+    color: white;
+
+    font-size: 10px;
+    font-weight: 850;
+}
+
+
+/* ============================================================
+   HERO
+   ============================================================ */
+
+.hero {
+    position: relative;
+    overflow: hidden;
+
+    padding: 35px;
+
+    border-radius: 21px;
+
+    background:
+        linear-gradient(
+            135deg,
+            #0B3B91 0%,
+            #155EEF 60%,
+            #246BDE 100%
+        );
+
+    color: white;
+
+    margin-bottom: 20px;
+
+    box-shadow:
+        0 16px 40px rgba(11,59,145,0.18);
+}
+
+.hero-title {
+    position: relative;
+    z-index: 2;
+
+    font-size: clamp(30px, 4vw, 46px);
+
+    line-height: 1.05;
+
+    font-weight: 900;
+
+    letter-spacing: -0.035em;
+}
+
+.hero-description {
+    position: relative;
+    z-index: 2;
+
+    max-width: 760px;
+
+    margin-top: 15px;
+
+    color: rgba(255,255,255,0.90);
+
+    font-size: 14px;
+
+    line-height: 1.7;
+}
+
+.hero-eyebrow {
+    display: inline-block;
+
+    padding: 6px 10px;
+
+    border-radius: 999px;
+
+    background: rgba(255,255,255,0.12);
+
+    border: 1px solid rgba(255,255,255,0.18);
+
+    font-size: 9px;
+    font-weight: 850;
+
+    text-transform: uppercase;
+    letter-spacing: 0.13em;
+}
+
+.hero-features {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+
+    margin-top: 22px;
+
+    color: rgba(255,255,255,0.85);
+
+    font-size: 10px;
+    font-weight: 750;
+}
+
+
+/* ============================================================
+   METRICS
+   ============================================================ */
+
+.metric-card {
+    background: #FFFFFF;
+
+    border: 1px solid #E2E8F0;
+
+    border-radius: 14px;
+
+    padding: 16px;
+
+    min-height: 100px;
+
+    box-shadow:
+        0 4px 15px rgba(15,23,42,0.035);
+}
+
+.metric-label {
+    color: #64748B;
+
+    font-size: 9px;
+
+    font-weight: 850;
+
+    text-transform: uppercase;
+
+    letter-spacing: 0.1em;
+}
+
+.metric-value {
+    color: #0B1220;
+
+    font-size: 23px;
+
+    font-weight: 900;
+
+    margin-top: 8px;
+}
+
+.metric-note {
+    color: #94A3B8;
+
+    font-size: 10px;
+}
+
+
+/* ============================================================
+   CHAT
+   ============================================================ */
+
+.chat-container {
+    background: #FFFFFF;
+
+    border: 1px solid #E2E8F0;
+
+    border-radius: 19px;
+
+    overflow: hidden;
+
+    box-shadow:
+        0 8px 28px rgba(15,23,42,0.045);
+}
+
+.chat-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    padding: 16px 19px;
+
+    border-bottom: 1px solid #EEF2F7;
+}
+
+.chat-title {
+    font-size: 14px;
+    font-weight: 850;
+    color: #0B1220;
+}
+
+.chat-subtitle {
+    font-size: 10px;
+    color: #64748B;
+    margin-top: 3px;
+}
+
+
+/* ============================================================
+   MESSAGES
+   ============================================================ */
+
+.message-row {
+    display: flex;
+    gap: 11px;
+
+    padding: 18px 20px;
+
+    border-bottom: 1px solid #F1F5F9;
+}
+
+.message-avatar {
+    flex: 0 0 auto;
+
+    width: 34px;
+    height: 34px;
+
+    border-radius: 10px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    font-size: 10px;
+    font-weight: 900;
+}
+
+.ai-avatar {
+    background: #EAF4FF;
+    color: #155EEF;
+}
+
+.user-avatar-small {
+    background: #0B1220;
+    color: #FFFFFF;
+}
+
+.message-content {
+    flex: 1;
+}
+
+.message-name {
+    color: #0B1220;
+
+    font-size: 11px;
+    font-weight: 850;
+}
+
+.message-time {
+    color: #94A3B8;
+
+    font-size: 9px;
+
+    margin-left: 7px;
+}
+
+.message-text {
+    color: #334155;
+
+    font-size: 13px;
+
+    line-height: 1.7;
+
+    margin-top: 5px;
+}
+
+
+/* ============================================================
+   SOURCE
+   ============================================================ */
+
+.source-card {
+    padding: 13px;
+
+    margin-bottom: 9px;
+
+    background: #F8FAFC;
+
+    border: 1px solid #E2E8F0;
+
+    border-radius: 12px;
+}
+
+.source-title {
+    color: #0B1220;
+
+    font-size: 11px;
+
+    font-weight: 850;
+}
+
+.source-meta {
+    color: #64748B;
+
+    font-size: 9px;
+
+    margin-top: 3px;
+}
+
+.source-snippet {
+    margin-top: 9px;
+
+    padding: 9px;
+
+    background: #FFFFFF;
+
+    border: 1px solid #E8EEF5;
+
+    border-radius: 8px;
+
+    color: #475569;
+
+    font-size: 10px;
+
+    line-height: 1.6;
+}
+
+
+/* ============================================================
+   BUTTONS
+   ============================================================ */
+
+.stButton > button {
+    min-height: 39px;
+
+    border-radius: 9px;
+
+    border: 1px solid #D7E1EC;
+
+    background: #FFFFFF;
+
+    color: #1E293B;
+
+    font-size: 11px;
+
+    font-weight: 750;
+}
+
+.stButton > button:hover {
+    border-color: #155EEF;
+
+    color: #155EEF;
+}
+
+.stButton > button[kind="primary"] {
+    background: linear-gradient(
+        135deg,
+        #155EEF,
+        #0B3B91
+    );
+
+    color: white;
+
+    border: none;
+}
+
+
+/* ============================================================
+   TEXT AREA
+   ============================================================ */
+
+.stTextArea textarea {
+    background: #FFFFFF !important;
+
+    color: #0B1220 !important;
+
+    border: 1px solid #D7E1EC !important;
+
+    border-radius: 12px !important;
+
+    font-size: 12px !important;
+}
+
+.stTextArea textarea:focus {
+    border-color: #155EEF !important;
+
+    box-shadow:
+        0 0 0 3px rgba(21,94,239,0.09) !important;
+}
+
+
+/* ============================================================
+   FOOTER
+   ============================================================ */
+
+.app-footer {
+    text-align: center;
+
+    padding: 25px 0 5px;
+
+    color: #94A3B8;
+
+    font-size: 9px;
+}
+
+</style>
+""",
+    unsafe_allow_html=True
+)
 
 
 # ============================================================
-# UTILITY FUNCTIONS
+# HELPERS
 # ============================================================
-
-def current_timestamp() -> str:
-    """Return a human-readable local timestamp."""
-
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
 
 def clean_text(value: Any) -> str:
-    """Safely convert arbitrary values into displayable text."""
 
     if value is None:
         return ""
@@ -607,296 +723,635 @@ def clean_text(value: Any) -> str:
     return str(value).strip()
 
 
-def normalize_result(result: Any) -> Dict[str, Any]:
-    """
-    Normalize RAG output into a predictable dictionary.
+def safe_html(value: Any) -> str:
 
-    Supports the existing expected structure:
-        {
-            "answer": "...",
-            "citations": [...],
-            "sources": [...]
-        }
-    """
+    return html.escape(
+        clean_text(value)
+    )
 
-    if result is None:
-        return {
-            "answer": "",
-            "citations": [],
-            "sources": [],
-        }
 
-    if isinstance(result, dict):
-        return {
-            "answer": clean_text(result.get("answer", "")),
-            "citations": result.get("citations", []) or [],
-            "sources": result.get("sources", []) or [],
-        }
+def clean_document_text(text: str) -> str:
 
-    return {
-        "answer": clean_text(result),
-        "citations": [],
-        "sources": [],
+    text = clean_text(text)
+
+    return re.sub(
+        r"\s+",
+        " ",
+        text
+    ).strip()
+
+
+# ============================================================
+# CHROMA
+# ============================================================
+
+@st.cache_resource(show_spinner=False)
+def get_chroma_client():
+
+    return chromadb.PersistentClient(
+        path=CHROMA_PATH
+    )
+
+
+def get_collection():
+
+    try:
+
+        client = get_chroma_client()
+
+        collections = client.list_collections()
+
+        names = []
+
+        for collection in collections:
+
+            try:
+                names.append(collection.name)
+            except Exception:
+                pass
+
+        for name in COLLECTION_NAMES:
+
+            if name in names:
+
+                return client.get_collection(name)
+
+        return None
+
+    except Exception as exc:
+
+        logger.exception(
+            "Chroma error: %s",
+            exc
+        )
+
+        return None
+
+
+# ============================================================
+# EMBEDDINGS
+# ============================================================
+
+@st.cache_resource(show_spinner=False)
+def get_embedding_model():
+
+    return SentenceTransformer(
+        EMBEDDING_MODEL
+    )
+
+
+# ============================================================
+# RETRIEVAL
+# ============================================================
+
+def retrieve(
+    question: str
+) -> List[Dict[str, Any]]:
+
+    if not question.strip():
+        return []
+
+    collection = get_collection()
+
+    if collection is None:
+        return []
+
+    try:
+
+        model = get_embedding_model()
+
+        embedding = model.encode(
+            question,
+            normalize_embeddings=True
+        ).tolist()
+
+        result = collection.query(
+            query_embeddings=[embedding],
+            n_results=TOP_K,
+            include=[
+                "documents",
+                "metadatas",
+                "distances",
+            ],
+        )
+
+        documents = result.get(
+            "documents",
+            [[]]
+        )[0]
+
+        metadatas = result.get(
+            "metadatas",
+            [[]]
+        )[0]
+
+        distances = result.get(
+            "distances",
+            [[]]
+        )[0]
+
+        output = []
+
+        for i, document in enumerate(
+            documents
+        ):
+
+            output.append(
+                {
+                    "text": clean_document_text(
+                        document
+                    ),
+                    "metadata":
+                        metadatas[i]
+                        if i < len(metadatas)
+                        else {},
+                    "distance":
+                        distances[i]
+                        if i < len(distances)
+                        else None,
+                }
+            )
+
+        return [
+            item
+            for item in output
+            if len(item["text"]) >= 20
+        ]
+
+    except Exception as exc:
+
+        logger.exception(
+            "Retrieval failed: %s",
+            exc
+        )
+
+        return []
+
+
+# ============================================================
+# CONTEXT
+# ============================================================
+
+def build_context(
+    documents: List[Dict[str, Any]]
+) -> str:
+
+    parts = []
+
+    for index, document in enumerate(
+        documents,
+        start=1
+    ):
+
+        metadata = (
+            document.get(
+                "metadata",
+                {}
+            )
+            or {}
+        )
+
+        title = (
+            metadata.get("title")
+            or metadata.get("document_title")
+            or metadata.get("source")
+            or "Policy Document"
+        )
+
+        section = (
+            metadata.get("section")
+            or metadata.get("section_title")
+            or "Policy Section"
+        )
+
+        document_id = (
+            metadata.get("document_id")
+            or metadata.get("id")
+            or metadata.get("source")
+            or f"POLICY-{index:03d}"
+        )
+
+        parts.append(
+            f"""
+SOURCE {index}
+
+Document ID:
+{document_id}
+
+Policy:
+{title}
+
+Section:
+{section}
+
+Evidence:
+{document["text"]}
+""".strip()
+        )
+
+    return "\n\n--------------------\n\n".join(
+        parts
+    )
+
+
+# ============================================================
+# LLM
+# ============================================================
+
+def generate_answer(
+    question: str,
+    context: str
+) -> Optional[str]:
+
+    if not OPENROUTER_API_KEY:
+        return None
+
+    system_prompt = """
+You are PolicyCopilot.
+
+You answer ONLY from the supplied policy context.
+
+Rules:
+- Never use outside knowledge.
+- Never invent policy.
+- If the answer is not supported, clearly state that
+  the policy corpus does not provide enough information.
+- Always cite the relevant policy document.
+- Include the policy section when available.
+- Keep answers concise and professional.
+- Do not fabricate citations.
+"""
+
+    payload = {
+        "model": OPENROUTER_MODEL,
+        "messages": [
+            {
+                "role": "system",
+                "content": system_prompt,
+            },
+            {
+                "role": "user",
+                "content": (
+                    "POLICY CONTEXT:\n\n"
+                    + context
+                    + "\n\nQUESTION:\n\n"
+                    + question
+                ),
+            },
+        ],
+        "temperature": 0.1,
+        "max_tokens": 700,
     }
 
-
-def safe_source(source: Any) -> Dict[str, str]:
-    """Normalize one source object."""
-
-    if not isinstance(source, dict):
-        return {
-            "title": "Unknown Policy",
-            "document_id": "unknown",
-            "section": "Unknown Section",
-            "source": "unknown",
-            "snippet": clean_text(source),
-        }
-
-    return {
-        "title": clean_text(
-            source.get("title")
-            or source.get("document")
-            or source.get("source")
-            or "Unknown Policy"
-        ),
-        "document_id": clean_text(
-            source.get("document_id")
-            or source.get("source")
-            or "unknown"
-        ),
-        "section": clean_text(
-            source.get("section")
-            or "Unknown Section"
-        ),
-        "source": clean_text(
-            source.get("source")
-            or source.get("title")
-            or "unknown"
-        ),
-        "snippet": clean_text(
-            source.get("snippet")
-            or source.get("document")
-            or source.get("text")
-            or ""
-        ),
+    headers = {
+        "Authorization":
+            f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type":
+            "application/json",
+        "HTTP-Referer":
+            "https://github.com/charlesishimwe/Policy_RAG_App",
+        "X-Title":
+            "PolicyCopilot",
     }
 
+    try:
 
-def get_unique_sources(sources: List[Any]) -> List[Dict[str, str]]:
-    """Remove duplicate sources while preserving order."""
+        response = requests.post(
+            OPENROUTER_URL,
+            headers=headers,
+            json=payload,
+            timeout=60,
+        )
 
-    unique = []
+        if response.status_code != 200:
+
+            logger.warning(
+                "LLM HTTP %s",
+                response.status_code
+            )
+
+            return None
+
+        data = response.json()
+
+        choices = data.get(
+            "choices",
+            []
+        )
+
+        if not choices:
+            return None
+
+        answer = (
+            choices[0]
+            .get("message", {})
+            .get("content")
+        )
+
+        return (
+            clean_text(answer)
+            if answer
+            else None
+        )
+
+    except Exception as exc:
+
+        logger.exception(
+            "Generation failed: %s",
+            exc
+        )
+
+        return None
+
+
+# ============================================================
+# FALLBACK
+# ============================================================
+
+def fallback_answer(
+    question: str,
+    documents: List[Dict[str, Any]]
+) -> str:
+
+    if not documents:
+
+        return (
+            "I can only answer questions covered by "
+            "the company policy corpus. No relevant "
+            "policy information was found."
+        )
+
+    question_words = set(
+        word.lower()
+        for word in re.findall(
+            r"[A-Za-zÀ-ÿ0-9]+",
+            question
+        )
+        if len(word) > 2
+    )
+
+    matches = []
+
+    for document in documents:
+
+        sentences = re.split(
+            r"(?<=[.!?])\s+",
+            document["text"]
+        )
+
+        for sentence in sentences:
+
+            sentence_words = set(
+                word.lower()
+                for word in re.findall(
+                    r"[A-Za-zÀ-ÿ0-9]+",
+                    sentence
+                )
+                if len(word) > 2
+            )
+
+            score = len(
+                question_words
+                &
+                sentence_words
+            )
+
+            if score:
+                matches.append(
+                    (
+                        score,
+                        sentence
+                    )
+                )
+
+    matches.sort(
+        reverse=True,
+        key=lambda x: x[0]
+    )
+
+    selected = []
+
+    for _, sentence in matches:
+
+        if sentence not in selected:
+
+            selected.append(
+                sentence
+            )
+
+        if len(selected) == 3:
+            break
+
+    if not selected:
+
+        selected = [
+            documents[0]["text"][:700]
+        ]
+
+    return (
+        "Based on the retrieved policy evidence:\n\n"
+        + " ".join(selected)
+    )
+
+
+# ============================================================
+# SOURCES
+# ============================================================
+
+def build_sources(
+    documents: List[Dict[str, Any]]
+) -> List[Dict[str, str]]:
+
+    sources = []
+
     seen = set()
 
-    for item in sources:
-        source = safe_source(item)
+    for document in documents:
+
+        metadata = (
+            document.get(
+                "metadata",
+                {}
+            )
+            or {}
+        )
+
+        title = (
+            metadata.get("title")
+            or metadata.get("document_title")
+            or metadata.get("source")
+            or "Policy Document"
+        )
+
+        section = (
+            metadata.get("section")
+            or metadata.get("section_title")
+            or "Policy Section"
+        )
+
+        document_id = (
+            metadata.get("document_id")
+            or metadata.get("id")
+            or metadata.get("source")
+            or "POLICY"
+        )
 
         key = (
-            source["document_id"],
-            source["section"],
+            str(document_id),
+            str(section)
         )
 
         if key in seen:
             continue
 
         seen.add(key)
-        unique.append(source)
 
-    return unique
-
-
-def set_question(question: str) -> None:
-    """Put a suggested question into the input state."""
-
-    st.session_state.policy_question = clean_text(question)
-
-
-def clear_chat() -> None:
-    """Clear current conversation."""
-
-    st.session_state.chat_history = []
-    st.session_state.last_result = None
-    st.session_state.last_latency_ms = None
-    st.session_state.policy_question = ""
-
-
-def format_answer_for_export() -> str:
-    """Create a text export of the current response."""
-
-    result = st.session_state.last_result
-
-    if not result:
-        return "No PolicyCopilot response is currently available."
-
-    lines = [
-        "POLICYCOPILOT RESPONSE",
-        "=" * 70,
-        "",
-        f"Generated: {current_timestamp()}",
-        "",
-        "ANSWER",
-        "-" * 70,
-        clean_text(result.get("answer")),
-        "",
-        "SOURCES",
-        "-" * 70,
-    ]
-
-    for source in get_unique_sources(result.get("sources", [])):
-        lines.extend(
-            [
-                f"Document: {source['title']}",
-                f"Section: {source['section']}",
-                f"Document ID: {source['document_id']}",
-                "",
-                source["snippet"],
-                "",
-                "-" * 70,
-            ]
+        sources.append(
+            {
+                "document_id":
+                    clean_text(document_id),
+                "title":
+                    clean_text(title),
+                "section":
+                    clean_text(section),
+                "snippet":
+                    clean_text(
+                        document["text"]
+                    )[:800],
+            }
         )
 
-    return "\n".join(lines)
+    return sources
 
 
-def answer_question(question: str) -> None:
-    """Run the RAG pipeline and update the UI state."""
+# ============================================================
+# PIPELINE
+# ============================================================
 
-    question = clean_text(question)
+def ask_policy(
+    question: str
+) -> Dict[str, Any]:
 
-    if not question:
-        st.warning("Please enter a policy question.")
-        return
+    start = time.perf_counter()
 
-    if len(question) > MAX_QUESTION_LENGTH:
-        st.error(
-            f"Your question is too long. "
-            f"Please keep it under {MAX_QUESTION_LENGTH} characters."
+    documents = retrieve(
+        question
+    )
+
+    if not documents:
+
+        return {
+            "answer":
+                "I can only answer questions covered by "
+                "the company policy corpus. I could not "
+                "find relevant policy information.",
+            "sources": [],
+            "latency":
+                time.perf_counter() - start,
+            "retrieval_count": 0,
+        }
+
+    context = build_context(
+        documents
+    )
+
+    answer = generate_answer(
+        question,
+        context
+    )
+
+    if not answer:
+
+        answer = fallback_answer(
+            question,
+            documents
         )
-        return
 
-    pipeline, error = get_rag_pipeline()
+    return {
+        "answer": answer,
+        "sources":
+            build_sources(documents),
+        "latency":
+            time.perf_counter() - start,
+        "retrieval_count":
+            len(documents),
+    }
 
-    if pipeline is None:
-        st.error(
-            "PolicyCopilot could not connect to the RAG service."
-        )
 
-        with st.expander("Technical details"):
-            st.code(error or "Unknown RAG initialization error")
+# ============================================================
+# STATUS
+# ============================================================
 
-        return
+def get_status():
 
-    start_time = time.perf_counter()
+    collection = get_collection()
+
+    if collection is None:
+
+        return {
+            "connected": False,
+            "chunks": 0,
+        }
 
     try:
-        with st.spinner("Searching policy knowledge and generating an answer..."):
-            raw_result = pipeline.answer(question)
 
-        latency_ms = round(
-            (time.perf_counter() - start_time) * 1000,
-            2,
-        )
+        return {
+            "connected": True,
+            "chunks": collection.count(),
+        }
 
-        result = normalize_result(raw_result)
+    except Exception:
 
-        if not result["answer"]:
-            result["answer"] = (
-                "I couldn't find sufficient information in the "
-                "available company policy documents to answer that question."
-            )
-
-        result["latency_ms"] = latency_ms
-        result["timestamp"] = current_timestamp()
-        result["question"] = question
-
-        st.session_state.last_result = result
-        st.session_state.last_latency_ms = latency_ms
-        st.session_state.total_questions += 1
-
-        st.session_state.chat_history.append(
-            {
-                "role": "user",
-                "content": question,
-                "question": question,
-                "timestamp": result["timestamp"],
-            }
-        )
-
-        st.session_state.chat_history.append(
-            {
-                "role": "assistant",
-                "content": result["answer"],
-                "answer": result["answer"],
-                "timestamp": result["timestamp"],
-                "sources": result.get("sources", []),
-                "citations": result.get("citations", []),
-                "latency_ms": latency_ms,
-            }
-        )
-
-    except Exception as exc:
-        LOGGER.exception("Question processing failed")
-
-        st.error(
-            "PolicyCopilot encountered an error while processing your question."
-        )
-
-        with st.expander("Technical details"):
-            st.code(str(exc))
+        return {
+            "connected": True,
+            "chunks": 0,
+        }
 
 
 # ============================================================
-# HEADER
+# TOP BAR
 # ============================================================
 
-header_left, header_center, header_right = st.columns(
-    [4, 4, 2],
-    vertical_alignment="center",
-)
+st.markdown(
+    """
+<div class="topbar">
 
-with header_left:
-    st.markdown(
-        """
-        <div class="pc-header">
-            <div class="pc-header-title">PolicyCopilot</div>
-            <div class="pc-header-subtitle">
+    <div class="topbar-left">
+
+        <div class="topbar-logo">
+            AI
+        </div>
+
+        <div>
+
+            <div class="topbar-name">
+                PolicyCopilot
+            </div>
+
+            <div class="topbar-subtitle">
                 Enterprise Policy Intelligence
             </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
 
-with header_center:
-    st.markdown(
-        """
-        <div class="pc-header">
-            <div style="font-size:0.78rem;color:#64748B;">
-                Workspace
-            </div>
-            <div style="font-size:0.92rem;font-weight:800;color:#0B1220;">
-                Policy Knowledge Assistant
-            </div>
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
 
-with header_right:
-    status_text = (
-        "● Service available"
-        if st.session_state.rag_initialized
-        else "● Service checking"
-    )
+    </div>
 
-    st.markdown(
-        f"""
-        <div class="pc-header" style="text-align:center;">
-            <span class="pc-status-neutral">{status_text}</span>
+    <div class="topbar-right">
+
+        <div class="status-badge">
+            Knowledge service
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
+
+        <div class="user-avatar">
+            AI
+        </div>
+
+    </div>
+
+</div>
+""",
+    unsafe_allow_html=True
+)
 
 
 # ============================================================
@@ -907,966 +1362,911 @@ with st.sidebar:
 
     st.markdown(
         """
-        <div class="pc-brand">
-            <div class="pc-brand-row">
-                <div class="pc-brand-logo">P</div>
-                <div>
-                    <div class="pc-brand-name">PolicyCopilot</div>
-                    <div class="pc-brand-description">
-                        Enterprise Policy Intelligence
-                    </div>
-                </div>
-            </div>
+<div class="sidebar-brand">
+
+    <div class="sidebar-logo">
+        AI
+    </div>
+
+    <div>
+
+        <div class="sidebar-title">
+            PolicyCopilot
         </div>
-        """,
-        unsafe_allow_html=True,
+
+        <div class="sidebar-subtitle">
+            Policy Intelligence Platform
+        </div>
+
+    </div>
+
+</div>
+""",
+        unsafe_allow_html=True
     )
-
-    st.markdown("### Workspace")
-
-    page = st.radio(
-        "Workspace navigation",
-        [
-            "Chat",
-            "Knowledge Base",
-            "System Status",
-            "Settings",
-        ],
-        label_visibility="collapsed",
-        key="current_page",
-    )
-
-    st.divider()
 
     if st.button(
-        "＋ New Chat",
-        use_container_width=True,
+        "＋  New conversation",
         type="primary",
+        use_container_width=True
     ):
-        clear_chat()
+
+        st.session_state.messages = []
+
         st.rerun()
 
-    st.markdown("### Recent Questions")
+    st.markdown(
+        '<div class="sidebar-section">Workspace</div>',
+        unsafe_allow_html=True
+    )
 
-    recent_questions = [
-        item.get("question", item.get("content", ""))
-        for item in st.session_state.chat_history
-        if item.get("role") == "user"
-    ]
+    workspace = st.radio(
+        "Workspace",
+        [
+            "Assistant",
+            "Knowledge base",
+            "Settings",
+        ],
+        label_visibility="collapsed"
+    )
 
-    if recent_questions:
+    st.markdown(
+        '<div class="sidebar-section">Recent questions</div>',
+        unsafe_allow_html=True
+    )
+
+    if st.session_state.recent_questions:
+
         for index, question in enumerate(
-            reversed(recent_questions[-5:])
+            st.session_state.recent_questions[:6]
         ):
-            label = question[:48]
-            if len(question) > 48:
-                label += "..."
+
+            label = question[:40]
+
+            if len(question) > 40:
+                label += "…"
 
             if st.button(
                 label,
-                key=f"recent_question_{index}",
-                use_container_width=True,
+                key=f"recent_{index}",
+                use_container_width=True
             ):
-                set_question(question)
+
+                st.session_state.pending_question = (
+                    question
+                )
+
                 st.rerun()
-    else:
-        st.caption("Your recent questions will appear here.")
-
-    st.divider()
-
-    st.markdown("### AI Controls")
-
-    selected_top_k = st.slider(
-        "Retrieved documents",
-        min_value=1,
-        max_value=10,
-        value=st.session_state.top_k,
-        help="Number of policy chunks retrieved for each question.",
-    )
-
-    if selected_top_k != st.session_state.top_k:
-        st.session_state.top_k = selected_top_k
-        load_rag_pipeline.clear()
-        st.session_state.rag_initialized = False
-
-    st.caption(
-        f"Top-K retrieval: {st.session_state.top_k}"
-    )
-
-    st.divider()
-
-    st.markdown("### System Status")
-
-    if st.session_state.rag_initialized:
-        st.success("RAG service available")
-    else:
-        st.info("RAG service initializes on first question")
-
-    st.caption(
-        f"Questions this session: "
-        f"{st.session_state.total_questions}"
-    )
-
-    st.divider()
-
-    st.markdown(
-        """
-        **Trust principles**
-
-        • Policy-grounded answers  
-        • Source citations  
-        • No unsupported policy claims  
-        • Transparent evidence  
-        • Controlled retrieval
-        """
-    )
-
-
-# ============================================================
-# KNOWLEDGE BASE PAGE
-# ============================================================
-
-if page == "Knowledge Base":
-
-    st.markdown(
-        """
-        <div class="pc-hero">
-            <div class="pc-hero-title">
-                Policy <span>Knowledge Base</span>
-            </div>
-            <div class="pc-hero-description">
-                Explore the configuration used by PolicyCopilot for
-                policy retrieval and evidence-based responses.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    col1, col2, col3, col4 = st.columns(4)
-
-    with col1:
-        st.metric("Retrieval", "Vector Search")
-
-    with col2:
-        st.metric("Top-K", st.session_state.top_k)
-
-    with col3:
-        st.metric("Chunk Size", CHUNK_SIZE)
-
-    with col4:
-        st.metric("Overlap", CHUNK_OVERLAP)
-
-    st.markdown("### Retrieval Architecture")
-
-    st.info(
-        "PolicyCopilot retrieves semantically relevant policy chunks "
-        "from the indexed corpus before generating an answer."
-    )
-
-    architecture_cols = st.columns(5)
-
-    architecture = [
-        ("01", "Question", "User policy question"),
-        ("02", "Embedding", "Semantic representation"),
-        ("03", "ChromaDB", "Vector retrieval"),
-        ("04", "Context", "Relevant evidence"),
-        ("05", "Answer", "Grounded response"),
-    ]
-
-    for column, (number, title, description) in zip(
-        architecture_cols,
-        architecture,
-    ):
-        with column:
-            st.markdown(
-                f"""
-                <div class="pc-card">
-                    <div class="pc-card-title">{number}</div>
-                    <div class="pc-card-value" style="font-size:1rem;">
-                        {title}
-                    </div>
-                    <div class="pc-card-description">
-                        {description}
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-    st.markdown("### Policy Corpus")
-
-    policies_path = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)),
-        "policies",
-    )
-
-    if os.path.isdir(policies_path):
-
-        policy_files = sorted(
-            [
-                file_name
-                for file_name in os.listdir(policies_path)
-                if file_name.lower().endswith(
-                    (".md", ".txt", ".html", ".htm", ".pdf")
-                )
-            ]
-        )
-
-        if policy_files:
-
-            for file_name in policy_files:
-                full_path = os.path.join(
-                    policies_path,
-                    file_name,
-                )
-
-                try:
-                    size_kb = round(
-                        os.path.getsize(full_path) / 1024,
-                        1,
-                    )
-                except OSError:
-                    size_kb = 0
-
-                st.markdown(
-                    f"""
-                    <div class="pc-source">
-                        <div class="pc-source-title">
-                            📄 {file_name}
-                        </div>
-                        <div class="pc-source-meta">
-                            Policy document • {size_kb} KB
-                        </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-        else:
-            st.warning(
-                "No policy documents were found in the policies folder."
-            )
 
     else:
-        st.warning(
-            "The policies directory was not found."
+
+        st.caption(
+            "Your recent questions will appear here."
         )
 
     st.markdown(
-        """
-        <div class="pc-footer">
-            PolicyCopilot • Knowledge Base
-        </div>
-        """,
-        unsafe_allow_html=True,
+        '<div class="sidebar-section">System</div>',
+        unsafe_allow_html=True
     )
 
-    st.stop()
+    status = get_status()
+
+    if status["connected"]:
+
+        st.markdown(
+            """
+<div class="sidebar-status">
+
+<span class="status-dot"></span>
+
+Knowledge base connected
+
+</div>
+""",
+            unsafe_allow_html=True
+        )
+
+    else:
+
+        st.markdown(
+            """
+<div class="sidebar-status">
+
+<span
+class="status-dot"
+style="background:#64748B;">
+</span>
+
+Knowledge base unavailable
+
+</div>
+""",
+            unsafe_allow_html=True
+        )
 
 
 # ============================================================
-# SYSTEM STATUS PAGE
+# SETTINGS
 # ============================================================
 
-if page == "System Status":
+if workspace == "Settings":
 
-    st.markdown(
-        """
-        <div class="pc-hero">
-            <div class="pc-hero-title">
-                System <span>Status</span>
-            </div>
-            <div class="pc-hero-description">
-                Operational visibility for the PolicyCopilot RAG
-                application.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    st.title("Settings")
+
+    st.write(
+        "PolicyCopilot application configuration."
     )
 
-    pipeline, error = get_rag_pipeline()
+    c1, c2, c3 = st.columns(3)
 
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        if pipeline is not None:
-            st.success("RAG Pipeline\n\nAvailable")
-        else:
-            st.error("RAG Pipeline\n\nUnavailable")
-
-    with col2:
-        st.info(
-            f"Vector Retrieval\n\nTop-K = {st.session_state.top_k}"
-        )
-
-    with col3:
-        if os.getenv("OPENROUTER_API_KEY"):
-            st.success("LLM Configuration\n\nAPI key configured")
-        else:
-            st.warning("LLM Configuration\n\nCheck API key")
-
-    st.markdown("### Configuration")
-
-    config_data = {
-        "Application": APP_NAME,
-        "Embedding model": "all-MiniLM-L6-v2",
-        "Vector database": "ChromaDB",
-        "Top-K": st.session_state.top_k,
-        "Chunk size": CHUNK_SIZE,
-        "Chunk overlap": CHUNK_OVERLAP,
-        "LLM provider": "OpenRouter / configured generator",
-        "Environment": "Configured through environment variables",
-    }
-
-    for key, value in config_data.items():
-        left, right = st.columns([2, 5])
-
-        with left:
-            st.markdown(f"**{key}**")
-
-        with right:
-            st.write(value)
-
-    if error:
-        st.markdown("### Diagnostics")
-
-        with st.expander("RAG initialization diagnostic"):
-            st.code(error)
-
-    st.markdown("### Session Metrics")
-
-    metrics = st.columns(3)
-
-    with metrics[0]:
-        st.metric(
-            "Questions",
-            st.session_state.total_questions,
-        )
-
-    with metrics[1]:
-        latency = st.session_state.last_latency_ms
-
-        st.metric(
-            "Last latency",
-            f"{latency} ms" if latency else "—",
-        )
-
-    with metrics[2]:
+    with c1:
         st.metric(
             "Top-K",
-            st.session_state.top_k,
+            TOP_K
+        )
+
+    with c2:
+        st.metric(
+            "Embedding",
+            "MiniLM"
+        )
+
+    with c3:
+        st.metric(
+            "Generation",
+            "OpenRouter"
+            if OPENROUTER_API_KEY
+            else "Local"
+        )
+
+    st.stop()
+
+
+# ============================================================
+# KNOWLEDGE BASE
+# ============================================================
+
+if workspace == "Knowledge base":
+
+    st.title("Knowledge base")
+
+    status = get_status()
+
+    c1, c2 = st.columns(2)
+
+    with c1:
+
+        st.metric(
+            "Knowledge status",
+            "Connected"
+            if status["connected"]
+            else "Unavailable"
+        )
+
+    with c2:
+
+        st.metric(
+            "Indexed chunks",
+            f"{status['chunks']:,}"
         )
 
     st.markdown(
         """
-        <div class="pc-footer">
-            Operational status is based on application configuration
-            and runtime checks. It is not a security certification.
-        </div>
-        """,
-        unsafe_allow_html=True,
+<div class="metric-card">
+
+<div class="metric-label">
+Architecture
+</div>
+
+<div class="metric-value">
+RAG
+</div>
+
+<div class="metric-note">
+Semantic retrieval + grounded generation
+</div>
+
+</div>
+""",
+        unsafe_allow_html=True
     )
 
     st.stop()
 
 
 # ============================================================
-# SETTINGS PAGE
+# HERO
 # ============================================================
 
-if page == "Settings":
-
-    st.markdown(
-        """
-        <div class="pc-hero">
-            <div class="pc-hero-title">
-                Application <span>Settings</span>
-            </div>
-            <div class="pc-hero-description">
-                Configure retrieval behavior and review the current
-                PolicyCopilot environment.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    st.markdown("### Retrieval")
-
-    new_top_k = st.slider(
-        "Top-K documents",
-        min_value=1,
-        max_value=10,
-        value=st.session_state.top_k,
-    )
-
-    if st.button(
-        "Apply Retrieval Settings",
-        type="primary",
-    ):
-        st.session_state.top_k = new_top_k
-        load_rag_pipeline.clear()
-        st.session_state.rag_initialized = False
-
-        st.success(
-            "Retrieval settings updated. "
-            "The RAG pipeline will reinitialize on the next query."
-        )
-
-    st.markdown("### Current Configuration")
-
-    st.code(
-        json.dumps(
-            {
-                "TOP_K": st.session_state.top_k,
-                "CHUNK_SIZE": CHUNK_SIZE,
-                "CHUNK_OVERLAP": CHUNK_OVERLAP,
-                "MAX_QUESTION_LENGTH": MAX_QUESTION_LENGTH,
-            },
-            indent=2,
-        ),
-        language="json",
-    )
-
-    st.markdown("### Session")
-
-    if st.button(
-        "Clear Conversation",
-        use_container_width=False,
-    ):
-        clear_chat()
-        st.success("Conversation cleared.")
-        st.rerun()
-
-    st.markdown(
-        """
-        <div class="pc-footer">
-            PolicyCopilot • Configuration
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    st.stop()
-
-
-# ============================================================
-# MAIN CHAT HERO
-# ============================================================
+# IMPORTANT:
+# The HTML tags below are rendered by Streamlit.
+# Customers see ONLY the visual result.
+# They do NOT see the HTML source code.
 
 st.markdown(
     """
-    <div class="pc-hero">
-        <div class="pc-hero-title">
-            Ask about your <span>company policies</span>
-        </div>
+<div class="hero">
 
-        <div class="pc-hero-description">
-            Get accurate answers grounded in your organization's
-            policy knowledge base, supported by transparent source
-            citations and evidence.
-        </div>
+    <div class="hero-eyebrow">
+        AI-powered policy intelligence
     </div>
-    """,
-    unsafe_allow_html=True,
+
+    <div class="hero-title">
+        Ask your policies.<br>
+        Get grounded answers.
+    </div>
+
+    <div class="hero-description">
+        Get accurate answers grounded in your organization's
+        policy knowledge base, supported by transparent source
+        citations and evidence.
+    </div>
+
+    <div class="hero-features">
+        <span>✓ Grounded answers</span>
+        <span>✓ Source citations</span>
+        <span>✓ Semantic retrieval</span>
+        <span>✓ Enterprise-ready</span>
+    </div>
+
+</div>
+""",
+    unsafe_allow_html=True
 )
 
 
 # ============================================================
-# TRUST / CAPABILITY CARDS
+# METRICS
 # ============================================================
 
-trust1, trust2, trust3, trust4 = st.columns(4)
+status = get_status()
 
-with trust1:
+m1, m2, m3, m4 = st.columns(4)
+
+with m1:
+
     st.markdown(
-        """
-        <div class="pc-card">
-            <div class="pc-card-title">Knowledge</div>
-            <div class="pc-card-value">Policy Grounded</div>
-            <div class="pc-card-description">
-                Responses are generated from indexed policy content.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+        f"""
+<div class="metric-card">
+
+<div class="metric-label">
+Policy chunks
+</div>
+
+<div class="metric-value">
+{status["chunks"]:,}
+</div>
+
+<div class="metric-note">
+Indexed knowledge
+</div>
+
+</div>
+""",
+        unsafe_allow_html=True
     )
 
-with trust2:
+with m2:
+
     st.markdown(
-        """
-        <div class="pc-card">
-            <div class="pc-card-title">Evidence</div>
-            <div class="pc-card-value">Source Cited</div>
-            <div class="pc-card-description">
-                Retrieved documents are displayed with the response.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+        f"""
+<div class="metric-card">
+
+<div class="metric-label">
+Retrieval depth
+</div>
+
+<div class="metric-value">
+{TOP_K}
+</div>
+
+<div class="metric-note">
+Top policy matches
+</div>
+
+</div>
+""",
+        unsafe_allow_html=True
     )
 
-with trust3:
-    st.markdown(
-        """
-        <div class="pc-card">
-            <div class="pc-card-title">Retrieval</div>
-            <div class="pc-card-value">Semantic Search</div>
-            <div class="pc-card-description">
-                Vector retrieval finds relevant policy passages.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+with m3:
+
+    latency = (
+        f"{st.session_state.last_latency:.2f}s"
+        if st.session_state.last_latency
+        else "—"
     )
 
-with trust4:
     st.markdown(
-        """
-        <div class="pc-card">
-            <div class="pc-card-title">Transparency</div>
-            <div class="pc-card-value">Evidence First</div>
-            <div class="pc-card-description">
-                Users can inspect the supporting policy evidence.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+        f"""
+<div class="metric-card">
+
+<div class="metric-label">
+Last response
+</div>
+
+<div class="metric-value">
+{latency}
+</div>
+
+<div class="metric-note">
+End-to-end latency
+</div>
+
+</div>
+""",
+        unsafe_allow_html=True
     )
 
+with m4:
 
-st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+    st.markdown(
+        f"""
+<div class="metric-card">
+
+<div class="metric-label">
+Generation
+</div>
+
+<div class="metric-value">
+{"AI" if OPENROUTER_API_KEY else "Local"}
+</div>
+
+<div class="metric-note">
+{"OpenRouter" if OPENROUTER_API_KEY else "Fallback mode"}
+</div>
+
+</div>
+""",
+        unsafe_allow_html=True
+    )
 
 
 # ============================================================
 # SUGGESTED QUESTIONS
 # ============================================================
 
-st.markdown("### Suggested questions")
+st.markdown(
+    "<br>",
+    unsafe_allow_html=True
+)
 
-suggestion_cols = st.columns(3)
+st.markdown(
+    """
+<div class="metric-label">
+Suggested questions
+</div>
+""",
+    unsafe_allow_html=True
+)
 
 suggestions = [
-    "How many vacation days does an employee receive?",
-    "What are the requirements for working remotely?",
-    "What expenses are eligible for reimbursement?",
-    "What should employees do if they suspect a security incident?",
-    "What is the company travel approval process?",
-    "What holidays are observed by the company?",
+    "How many vacation days do employees receive?",
+    "What is the remote work policy?",
+    "Which business expenses can employees claim?",
+    "What are the company's security requirements?",
 ]
 
-for index, suggestion in enumerate(suggestions):
+cols = st.columns(4)
 
-    with suggestion_cols[index % 3]:
+for index, suggestion in enumerate(
+    suggestions
+):
+
+    with cols[index]:
 
         if st.button(
             suggestion,
             key=f"suggestion_{index}",
-            use_container_width=True,
+            use_container_width=True
         ):
-            set_question(suggestion)
+
+            st.session_state.pending_question = (
+                suggestion
+            )
+
             st.rerun()
 
 
 # ============================================================
-# CHAT FRAME
+# CHAT
 # ============================================================
 
 st.markdown(
     """
-    <div class="pc-chat-frame">
-        <div class="pc-chat-header">
-            <div>
-                <div class="pc-chat-title">
-                    Policy Assistant
-                </div>
-                <div class="pc-chat-subtitle">
-                    Ask a question about the indexed company policies.
-                </div>
-            </div>
-            <span class="pc-status-neutral">
-                Top-K retrieval enabled
-            </span>
-        </div>
-    """,
-    unsafe_allow_html=True,
+<div class="chat-container">
+
+<div class="chat-header">
+
+<div>
+
+<div class="chat-title">
+Policy Assistant
+</div>
+
+<div class="chat-subtitle">
+Answers are grounded in the indexed policy knowledge base.
+</div>
+
+</div>
+
+<div class="status-badge">
+Ready
+</div>
+
+</div>
+""",
+    unsafe_allow_html=True
 )
 
 
 # ============================================================
-# CHAT HISTORY
+# WELCOME
 # ============================================================
 
-if st.session_state.chat_history:
-
-    for message in st.session_state.chat_history:
-
-        role = message.get("role")
-        content = clean_text(
-            message.get("content")
-            or message.get("answer")
-            or message.get("question")
-        )
-
-        timestamp = clean_text(
-            message.get("timestamp")
-        )
-
-        if role == "user":
-
-            st.markdown(
-                f"""
-                <div class="pc-message pc-user-message">
-                    <div class="pc-message-label">
-                        You
-                    </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-            st.write(content)
-
-            if timestamp:
-                st.markdown(
-                    f"""
-                    <div class="pc-message-time">
-                        {timestamp}
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-            st.markdown(
-                "</div>",
-                unsafe_allow_html=True,
-            )
-
-        elif role == "assistant":
-
-            st.markdown(
-                f"""
-                <div class="pc-message pc-assistant-message">
-                    <div class="pc-message-label">
-                        PolicyCopilot
-                    </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-            st.write(content)
-
-            if timestamp:
-                st.markdown(
-                    f"""
-                    <div class="pc-message-time">
-                        {timestamp}
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-            st.markdown(
-                "</div>",
-                unsafe_allow_html=True,
-            )
-
-
-else:
+if not st.session_state.messages:
 
     st.markdown(
         """
-        <div class="pc-empty">
-            <div class="pc-empty-icon">🛡️</div>
-            <div class="pc-empty-title">
-                Your policy conversation starts here
-            </div>
-            <div class="pc-empty-description">
-                Ask about vacation, remote work, expenses, security,
-                travel, benefits, holidays, conduct, or other topics
-                covered by the policy corpus.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+<div class="message-row">
 
+<div class="message-avatar ai-avatar">
+AI
+</div>
 
-st.markdown("</div>", unsafe_allow_html=True)
+<div class="message-content">
 
+<div class="message-name">
+PolicyCopilot
+<span class="message-time">
+Ready
+</span>
+</div>
 
-# ============================================================
-# INPUT AREA
-# ============================================================
+<div class="message-text">
+Welcome to PolicyCopilot. Ask a question about company
+policies and I will retrieve the relevant policy evidence
+before providing a grounded answer.
+</div>
 
-st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+</div>
 
-input_left, input_right = st.columns([5, 1])
-
-with input_left:
-
-    question = st.text_area(
-        "Policy question",
-        value=st.session_state.policy_question,
-        placeholder=(
-            "Ask a question about company policies..."
-        ),
-        height=90,
-        max_chars=MAX_QUESTION_LENGTH,
-        label_visibility="collapsed",
-        key="policy_question_input",
-    )
-
-with input_right:
-
-    st.markdown("")
-
-    send_clicked = st.button(
-        "Send",
-        type="primary",
-        use_container_width=True,
-    )
-
-    clear_clicked = st.button(
-        "Clear",
-        use_container_width=True,
-    )
-
-    st.caption(
-        f"{len(question)} / {MAX_QUESTION_LENGTH}"
+</div>
+""",
+        unsafe_allow_html=True
     )
 
 
 # ============================================================
-# INPUT ACTIONS
+# DISPLAY MESSAGES
 # ============================================================
 
-if clear_clicked:
-    clear_chat()
-    st.rerun()
+for message in st.session_state.messages:
 
-if send_clicked:
+    role = message.get(
+        "role",
+        "assistant"
+    )
 
-    st.session_state.policy_question = question
+    content = message.get(
+        "content",
+        ""
+    )
 
-    answer_question(question)
-
-    st.rerun()
-
-
-# ============================================================
-# LAST RESPONSE / EVIDENCE
-# ============================================================
-
-result = st.session_state.last_result
-
-if result:
-
-    st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
-
-    st.markdown("### Latest response")
-
-    answer_col, metric_col = st.columns([4, 1])
-
-    with answer_col:
+    if role == "user":
 
         st.markdown(
-            """
-            <div class="pc-card">
-                <div class="pc-card-title">
-                    AI Response
-                </div>
-            """,
-            unsafe_allow_html=True,
+            f"""
+<div class="message-row">
+
+<div class="message-avatar user-avatar-small">
+U
+</div>
+
+<div class="message-content">
+
+<div class="message-name">
+You
+</div>
+
+<div class="message-text">
+{safe_html(content)}
+</div>
+
+</div>
+
+</div>
+""",
+            unsafe_allow_html=True
         )
-
-        # IMPORTANT:
-        # Use st.write instead of injecting generated answer into HTML.
-        st.write(result.get("answer", ""))
-
-        st.markdown(
-            "</div>",
-            unsafe_allow_html=True,
-        )
-
-    with metric_col:
-
-        latency = result.get("latency_ms")
-
-        st.metric(
-            "Latency",
-            f"{latency} ms" if latency is not None else "—",
-        )
-
-        source_count = len(
-            get_unique_sources(
-                result.get("sources", [])
-            )
-        )
-
-        st.metric(
-            "Sources",
-            source_count,
-        )
-
-
-    # ========================================================
-    # ACTIONS
-    # ========================================================
-
-    st.markdown("### Response actions")
-
-    action1, action2, action3, action4 = st.columns(4)
-
-    with action1:
-
-        if st.button(
-            "↻ Regenerate",
-            use_container_width=True,
-        ):
-
-            original_question = result.get(
-                "question",
-                "",
-            )
-
-            if original_question:
-                answer_question(original_question)
-                st.rerun()
-            else:
-                st.warning(
-                    "No original question is available."
-                )
-
-    with action2:
-
-        st.download_button(
-            "↗ Export",
-            data=format_answer_for_export(),
-            file_name="policycopilot_response.txt",
-            mime="text/plain",
-            use_container_width=True,
-        )
-
-    with action3:
-
-        source_count = len(
-            get_unique_sources(
-                result.get("sources", [])
-            )
-        )
-
-        st.info(
-            f"{source_count} source(s)"
-        )
-
-    with action4:
-
-        if st.button(
-            "▣ Clear Response",
-            use_container_width=True,
-        ):
-            st.session_state.last_result = None
-            st.rerun()
-
-
-    # ========================================================
-    # EVIDENCE / SOURCES
-    # ========================================================
-
-    sources = get_unique_sources(
-        result.get("sources", [])
-    )
-
-    if sources:
-
-        st.markdown("### Sources & evidence")
-
-        for index, source in enumerate(
-            sources[:MAX_DISPLAY_SOURCES],
-            start=1,
-        ):
-
-            title = source["title"]
-            section = source["section"]
-            document_id = source["document_id"]
-            snippet = source["snippet"]
-
-            st.markdown(
-                f"""
-                <div class="pc-source">
-                    <div class="pc-source-title">
-                        {index}. {title}
-                    </div>
-
-                    <div class="pc-source-meta">
-                        Document ID: {document_id}
-                        &nbsp; • &nbsp;
-                        Section: {section}
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-            if snippet:
-
-                with st.expander(
-                    f"View evidence — {title}"
-                ):
-
-                    st.write(snippet)
-
-        if len(sources) > MAX_DISPLAY_SOURCES:
-            st.caption(
-                f"{len(sources) - MAX_DISPLAY_SOURCES} "
-                "additional sources were retrieved but are not displayed."
-            )
 
     else:
 
-        st.warning(
-            "No source metadata was returned with this response. "
-            "For production use, every policy answer should include "
-            "traceable document metadata."
+        st.markdown(
+            """
+<div class="message-row">
+
+<div class="message-avatar ai-avatar">
+AI
+</div>
+
+<div class="message-content">
+
+<div class="message-name">
+PolicyCopilot
+</div>
+
+<div class="message-text">
+""",
+            unsafe_allow_html=True
+        )
+
+        st.markdown(
+            content
+        )
+
+        st.markdown(
+            """
+</div>
+</div>
+</div>
+""",
+            unsafe_allow_html=True
+        )
+
+        sources = message.get(
+            "sources",
+            []
+        )
+
+        if sources:
+
+            with st.expander(
+                f"View {len(sources)} source"
+                + (
+                    "s"
+                    if len(sources) != 1
+                    else ""
+                )
+            ):
+
+                for source in sources:
+
+                    st.markdown(
+                        f"""
+<div class="source-card">
+
+<div class="source-title">
+{safe_html(source["title"])}
+</div>
+
+<div class="source-meta">
+{safe_html(source["document_id"])}
+•
+{safe_html(source["section"])}
+</div>
+
+<div class="source-snippet">
+{safe_html(source["snippet"])}
+</div>
+
+</div>
+""",
+                        unsafe_allow_html=True
+                    )
+
+
+# ============================================================
+# CLOSE CHAT
+# ============================================================
+
+st.markdown(
+    "</div>",
+    unsafe_allow_html=True
+)
+
+
+# ============================================================
+# INPUT
+# ============================================================
+
+pending = st.session_state.pop(
+    "pending_question",
+    None
+)
+
+question = st.text_area(
+    "Policy question",
+    value=pending or "",
+    placeholder=(
+        "Ask about vacation, remote work, expenses, "
+        "security, travel, benefits, or another policy..."
+    ),
+    height=90,
+    label_visibility="collapsed"
+)
+
+
+# ============================================================
+# ACTION BUTTONS
+# ============================================================
+
+c1, c2, c3 = st.columns(
+    [1, 1, 6]
+)
+
+with c1:
+
+    clear = st.button(
+        "Clear",
+        use_container_width=True
+    )
+
+with c2:
+
+    export = st.button(
+        "Export",
+        use_container_width=True
+    )
+
+with c3:
+
+    send = st.button(
+        "Send question  →",
+        type="primary",
+        use_container_width=True
+    )
+
+
+# ============================================================
+# CLEAR
+# ============================================================
+
+if clear:
+
+    st.session_state.messages = []
+
+    st.session_state.last_sources = []
+
+    st.session_state.last_latency = 0
+
+    st.session_state.last_retrieval_count = 0
+
+    st.rerun()
+
+
+# ============================================================
+# EXPORT
+# ============================================================
+
+if export:
+
+    if not st.session_state.messages:
+
+        st.info(
+            "There is no conversation to export yet."
+        )
+
+    else:
+
+        lines = [
+            "PolicyCopilot Conversation",
+            "==========================",
+            "",
+        ]
+
+        for message in st.session_state.messages:
+
+            role = (
+                "USER"
+                if message["role"] == "user"
+                else "POLICYCOPILOT"
+            )
+
+            lines.append(role)
+
+            lines.append(
+                message["content"]
+            )
+
+            lines.append("")
+
+        st.download_button(
+            "Download conversation",
+            data="\n".join(lines),
+            file_name="policycopilot_conversation.txt",
+            mime="text/plain",
+            use_container_width=True
         )
 
 
-    # ========================================================
-    # CITATIONS
-    # ========================================================
+# ============================================================
+# SEND QUESTION
+# ============================================================
 
-    citations = result.get("citations", [])
+if send:
 
-    if citations:
+    question = clean_text(
+        question
+    )
 
-        st.markdown("### Citations")
+    if not question:
 
-        for citation in citations:
+        st.warning(
+            "Please enter a policy question."
+        )
 
-            if isinstance(citation, dict):
+    else:
 
-                citation_title = clean_text(
-                    citation.get("title")
-                    or citation.get("document_id")
-                    or "Policy source"
-                )
+        st.session_state.recent_questions.insert(
+            0,
+            question
+        )
 
-                citation_section = clean_text(
-                    citation.get("section")
-                    or "Unknown Section"
-                )
+        st.session_state.recent_questions = list(
+            dict.fromkeys(
+                st.session_state.recent_questions
+            )
+        )[:10]
 
-                st.markdown(
-                    f"- **{citation_title}** — {citation_section}"
-                )
+        st.session_state.messages.append(
+            {
+                "role": "user",
+                "content": question,
+                "timestamp": time.time(),
+            }
+        )
 
-            else:
+        with st.spinner(
+            "Searching policy knowledge..."
+        ):
 
-                st.markdown(
-                    f"- {clean_text(citation)}"
-                )
+            result = ask_policy(
+                question
+            )
+
+        st.session_state.last_latency = (
+            result["latency"]
+        )
+
+        st.session_state.last_sources = (
+            result["sources"]
+        )
+
+        st.session_state.last_retrieval_count = (
+            result["retrieval_count"]
+        )
+
+        st.session_state.messages.append(
+            {
+                "role": "assistant",
+                "content": result["answer"],
+                "sources": result["sources"],
+                "timestamp": time.time(),
+            }
+        )
+
+        st.rerun()
+
+
+# ============================================================
+# RESPONSE DETAILS
+# ============================================================
+
+if st.session_state.messages:
+
+    st.markdown(
+        "<br>",
+        unsafe_allow_html=True
+    )
+
+    with st.expander(
+        "Response details"
+    ):
+
+        c1, c2, c3 = st.columns(3)
+
+        with c1:
+
+            st.metric(
+                "Response time",
+                f"{st.session_state.last_latency:.2f}s"
+            )
+
+        with c2:
+
+            st.metric(
+                "Sources retrieved",
+                st.session_state.last_retrieval_count
+            )
+
+        with c3:
+
+            st.metric(
+                "Retrieval",
+                f"Top-{TOP_K}"
+            )
+
+
+# ============================================================
+# TRUST CARDS
+# ============================================================
+
+st.markdown(
+    "<br>",
+    unsafe_allow_html=True
+)
+
+c1, c2, c3 = st.columns(3)
+
+with c1:
+
+    st.markdown(
+        """
+<div class="metric-card">
+
+<div class="metric-label">
+Semantic retrieval
+</div>
+
+<div class="metric-value">
+RAG
+</div>
+
+<div class="metric-note">
+Natural-language policy search
+</div>
+
+</div>
+""",
+        unsafe_allow_html=True
+    )
+
+with c2:
+
+    st.markdown(
+        """
+<div class="metric-card">
+
+<div class="metric-label">
+Evidence first
+</div>
+
+<div class="metric-value">
+Grounded
+</div>
+
+<div class="metric-note">
+Relevant evidence before generation
+</div>
+
+</div>
+""",
+        unsafe_allow_html=True
+    )
+
+with c3:
+
+    st.markdown(
+        """
+<div class="metric-card">
+
+<div class="metric-label">
+Transparency
+</div>
+
+<div class="metric-value">
+Citations
+</div>
+
+<div class="metric-note">
+Policy sources accompany answers
+</div>
+
+</div>
+""",
+        unsafe_allow_html=True
+    )
 
 
 # ============================================================
@@ -1875,14 +2275,15 @@ if result:
 
 st.markdown(
     """
-    <div class="pc-footer">
-        PolicyCopilot &nbsp;•&nbsp;
-        Policy Grounded &nbsp;•&nbsp;
-        Source Cited &nbsp;•&nbsp;
-        Evidence Transparent
-        <br>
-        Enterprise RAG demonstration application
-    </div>
-    """,
-    unsafe_allow_html=True,
+<div class="app-footer">
+
+PolicyCopilot • Enterprise Policy Intelligence
+
+<br>
+
+Grounded AI • Semantic Retrieval • Transparent Evidence
+
+</div>
+""",
+    unsafe_allow_html=True
 )
