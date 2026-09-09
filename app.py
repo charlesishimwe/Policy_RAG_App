@@ -1,5 +1,6 @@
 import os
 import time
+import logging
 from pathlib import Path
 
 import streamlit as st
@@ -19,9 +20,13 @@ APP_SUBTITLE = "Enterprise Policy Intelligence"
 
 TOP_K = int(os.getenv("TOP_K", "5"))
 
+# Logging is kept in the server/terminal, not displayed to users.
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("policycopilot")
+
 
 # ============================================================
-# PAGE CONFIGURATION
+# STREAMLIT PAGE CONFIG
 # ============================================================
 
 st.set_page_config(
@@ -33,16 +38,20 @@ st.set_page_config(
 
 
 # ============================================================
-# PROFESSIONAL UI STYLE
+# CSS ONLY
+#
+# IMPORTANT:
+# This is the ONLY HTML/CSS block in the application.
+# It is used only for styling and is never displayed as text.
 # ============================================================
 
 st.markdown(
     """
     <style>
 
-    /* =====================================================
+    /* --------------------------------------------------------
        GLOBAL
-       ===================================================== */
+    -------------------------------------------------------- */
 
     .stApp {
         background-color: #F7F9FC;
@@ -50,8 +59,8 @@ st.markdown(
 
     .main .block-container {
         max-width: 1180px;
-        padding-top: 28px;
-        padding-bottom: 60px;
+        padding-top: 30px;
+        padding-bottom: 50px;
     }
 
     #MainMenu {
@@ -67,372 +76,112 @@ st.markdown(
     }
 
 
-    /* =====================================================
+    /* --------------------------------------------------------
        SIDEBAR
-       ===================================================== */
+    -------------------------------------------------------- */
 
     section[data-testid="stSidebar"] {
         background-color: #FFFFFF;
-        border-right: 1px solid #E5EAF1;
+        border-right: 1px solid #E2E8F0;
     }
 
     section[data-testid="stSidebar"] > div {
         padding-top: 25px;
     }
 
-    .sidebar-logo {
-        width: 42px;
-        height: 42px;
-        border-radius: 11px;
-
-        background: linear-gradient(
-            135deg,
-            #2563EB,
-            #1D4ED8
-        );
-
-        color: #FFFFFF;
-
-        display: flex;
-        align-items: center;
-        justify-content: center;
-
-        font-size: 20px;
-        font-weight: 800;
-
-        margin-bottom: 12px;
+    section[data-testid="stSidebar"] h2 {
+        color: #0F172A !important;
     }
 
-    .sidebar-brand-name {
-        color: #0F172A;
-        font-size: 19px;
-        font-weight: 750;
-        margin-bottom: 2px;
-    }
-
-    .sidebar-brand-description {
-        color: #64748B;
-        font-size: 12px;
-        margin-bottom: 28px;
-    }
-
-    .sidebar-heading {
-        color: #64748B;
-        font-size: 10px;
-        font-weight: 750;
-
-        text-transform: uppercase;
-        letter-spacing: 0.10em;
-
-        margin-top: 25px;
-        margin-bottom: 9px;
-    }
-
-    .sidebar-line {
-        color: #334155;
-        font-size: 13px;
-        line-height: 1.45;
-
-        padding: 6px 0;
-    }
-
-    .sidebar-line strong {
-        color: #0F172A;
-    }
-
-    .guardrail {
-        color: #334155;
-        font-size: 12px;
-
-        padding: 5px 0;
-    }
-
-    .guardrail span {
-        color: #16A34A;
-        font-weight: 800;
-        margin-right: 6px;
+    section[data-testid="stSidebar"] p {
+        color: #475569;
     }
 
 
-    /* =====================================================
-       BRAND HEADER
-       ===================================================== */
-
-    .brand-wrapper {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-
-        margin-bottom: 35px;
-    }
-
-    .brand-logo {
-        width: 46px;
-        height: 46px;
-        border-radius: 13px;
-
-        background: linear-gradient(
-            135deg,
-            #2563EB,
-            #1D4ED8
-        );
-
-        color: #FFFFFF;
-
-        display: flex;
-        align-items: center;
-        justify-content: center;
-
-        font-size: 22px;
-        font-weight: 800;
-
-        box-shadow:
-            0 5px 16px rgba(37, 99, 235, 0.18);
-    }
-
-    .brand-name {
-        color: #0F172A;
-        font-size: 21px;
-        font-weight: 750;
-    }
-
-    .brand-description {
-        color: #64748B;
-        font-size: 12px;
-        margin-top: 2px;
-    }
-
-
-    /* =====================================================
-       HERO
-       ===================================================== */
-
-    .hero {
-        background: #FFFFFF;
-
-        border: 1px solid #E3E8EF;
-
-        border-radius: 18px;
-
-        padding: 40px 45px;
-
-        margin-bottom: 24px;
-
-        box-shadow:
-            0 8px 30px rgba(15, 23, 42, 0.035);
-    }
-
-    .hero-title {
-        color: #0F172A;
-
-        font-size: 40px;
-        font-weight: 800;
-
-        line-height: 1.15;
-
-        letter-spacing: -1.3px;
-
-        margin-bottom: 12px;
-    }
-
-    .hero-title span {
-        color: #2563EB;
-    }
-
-    .hero-description {
-        max-width: 700px;
-
-        color: #64748B;
-
-        font-size: 15px;
-
-        line-height: 1.65;
-    }
-
-
-    /* =====================================================
-       INPUT
-       ===================================================== */
+    /* --------------------------------------------------------
+       TEXT AREA
+    -------------------------------------------------------- */
 
     div[data-testid="stTextArea"] textarea {
         background-color: #FFFFFF !important;
-
         color: #0F172A !important;
-
         border: 1px solid #CBD5E1 !important;
-
         border-radius: 12px !important;
-
         font-size: 15px !important;
-
-        padding: 15px !important;
+        padding: 14px !important;
     }
 
     div[data-testid="stTextArea"] textarea:focus {
         border-color: #2563EB !important;
-
-        box-shadow:
-            0 0 0 3px rgba(37, 99, 235, 0.10) !important;
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.10) !important;
     }
 
 
-    /* =====================================================
+    /* --------------------------------------------------------
        BUTTONS
-       ===================================================== */
+    -------------------------------------------------------- */
 
     .stButton > button {
         border-radius: 10px !important;
-
         min-height: 42px !important;
-
         font-weight: 600 !important;
+        border: 1px solid #CBD5E1 !important;
     }
 
     .stButton > button:hover {
         border-color: #2563EB !important;
-
         color: #2563EB !important;
-
         background-color: #EFF6FF !important;
     }
 
 
-    /* =====================================================
-       ANSWER CARD
-       ===================================================== */
+    /* --------------------------------------------------------
+       PRIMARY BUTTON
+    -------------------------------------------------------- */
 
-    .answer-card {
-        background-color: #FFFFFF;
-
-        border: 1px solid #E2E8F0;
-
-        border-left: 4px solid #2563EB;
-
-        border-radius: 13px;
-
-        padding: 23px 25px;
-
-        margin-top: 24px;
-
-        box-shadow:
-            0 5px 20px rgba(15, 23, 42, 0.035);
+    button[kind="primary"] {
+        background-color: #2563EB !important;
+        border-color: #2563EB !important;
+        color: white !important;
     }
 
-    .answer-heading {
-        color: #0F172A;
-
-        font-size: 16px;
-        font-weight: 750;
-
-        margin-bottom: 12px;
-    }
-
-    .answer-content {
-        color: #334155;
-
-        font-size: 15px;
-
-        line-height: 1.75;
+    button[kind="primary"]:hover {
+        background-color: #1D4ED8 !important;
+        border-color: #1D4ED8 !important;
+        color: white !important;
     }
 
 
-    /* =====================================================
-       SOURCE CARD
-       ===================================================== */
+    /* --------------------------------------------------------
+       HEADINGS
+    -------------------------------------------------------- */
 
-    .source-card {
-        background-color: #FFFFFF;
-
-        border: 1px solid #E2E8F0;
-
-        border-radius: 11px;
-
-        padding: 17px 19px;
-
-        margin-bottom: 10px;
+    h1 {
+        color: #0F172A !important;
+        font-weight: 800 !important;
+        letter-spacing: -0.8px;
     }
 
-    .source-title {
-        color: #0F172A;
-
-        font-size: 14px;
-        font-weight: 700;
-    }
-
-    .source-meta {
-        color: #64748B;
-
-        font-size: 11px;
-
-        margin-top: 6px;
-    }
-
-    .source-snippet {
-        color: #475569;
-
-        font-size: 13px;
-
-        line-height: 1.55;
-
-        margin-top: 10px;
-
-        padding-top: 10px;
-
-        border-top: 1px solid #F1F5F9;
+    h2, h3, h4 {
+        color: #0F172A !important;
     }
 
 
-    /* =====================================================
-       METRIC CARDS
-       ===================================================== */
+    /* --------------------------------------------------------
+       DIVIDERS
+    -------------------------------------------------------- */
 
-    .metric-card {
-        background-color: #FFFFFF;
-
-        border: 1px solid #E2E8F0;
-
-        border-radius: 11px;
-
-        padding: 14px 16px;
-    }
-
-    .metric-label {
-        color: #64748B;
-
-        font-size: 10px;
-
-        text-transform: uppercase;
-
-        letter-spacing: 0.07em;
-    }
-
-    .metric-value {
-        color: #0F172A;
-
-        font-size: 18px;
-
-        font-weight: 750;
-
-        margin-top: 3px;
+    hr {
+        border-color: #E2E8F0 !important;
     }
 
 
-    /* =====================================================
-       FOOTER
-       ===================================================== */
+    /* --------------------------------------------------------
+       INFO / SUCCESS / WARNING
+    -------------------------------------------------------- */
 
-    .footer {
-        text-align: center;
-
-        color: #94A3B8;
-
-        font-size: 11px;
-
-        margin-top: 50px;
-
-        padding-top: 20px;
-
-        border-top: 1px solid #E2E8F0;
+    div[data-testid="stAlert"] {
+        border-radius: 10px !important;
     }
 
     </style>
@@ -442,33 +191,34 @@ st.markdown(
 
 
 # ============================================================
-# RAG PIPELINE
+# INITIALIZE RAG
 # ============================================================
 
 @st.cache_resource(show_spinner=False)
 def initialize_rag():
     """
-    Initialize the RAG pipeline once.
+    Initialize the RAG pipeline once and cache it.
 
-    Returns:
-        pipeline
-        error
+    The actual exception is logged to the server instead of
+    displaying Python code or traceback information to users.
     """
 
     try:
         from rag.pipeline import RAGPipeline
 
-        pipeline = RAGPipeline(
-            top_k=TOP_K
-        )
+        pipeline = RAGPipeline(top_k=TOP_K)
 
-        return pipeline, None
+        logger.info("RAG pipeline initialized successfully.")
 
-    except Exception as error:
-        return None, str(error)
+        return pipeline
+
+    except Exception:
+        logger.exception("Failed to initialize RAG pipeline.")
+
+        return None
 
 
-rag_pipeline, rag_error = initialize_rag()
+rag_pipeline = initialize_rag()
 
 
 # ============================================================
@@ -477,159 +227,127 @@ rag_pipeline, rag_error = initialize_rag()
 
 with st.sidebar:
 
-    # Logo
-    st.markdown(
-        '<div class="sidebar-logo">P</div>',
-        unsafe_allow_html=True,
-    )
-
     # Brand
-    st.markdown(
-        '<div class="sidebar-brand-name">PolicyCopilot</div>',
-        unsafe_allow_html=True,
-    )
+    st.markdown("## 🔵 PolicyCopilot")
+    st.caption(APP_SUBTITLE)
 
-    st.markdown(
-        '<div class="sidebar-brand-description">'
-        'Enterprise Policy Intelligence'
-        '</div>',
-        unsafe_allow_html=True,
-    )
+    st.divider()
 
     # Technology
+    st.markdown("### Technology")
+
     st.markdown(
-        '<div class="sidebar-heading">Technology</div>',
-        unsafe_allow_html=True,
+        """
+        **RAG**  
+        Retrieval-Augmented Generation
+        """
     )
 
     st.markdown(
         """
-        <div class="sidebar-line">
-            <strong>RAG</strong><br>
-            Custom Retrieval-Augmented Generation
-        </div>
-
-        <div class="sidebar-line">
-            <strong>Vector database</strong><br>
-            ChromaDB
-        </div>
-
-        <div class="sidebar-line">
-            <strong>Embeddings</strong><br>
-            Sentence Transformers
-        </div>
-
-        <div class="sidebar-line">
-            <strong>Language model</strong><br>
-            OpenRouter
-        </div>
-
-        <div class="sidebar-line">
-            <strong>Interface</strong><br>
-            Streamlit
-        </div>
-        """,
-        unsafe_allow_html=True,
+        **Vector Database**  
+        ChromaDB
+        """
     )
+
+    st.markdown(
+        """
+        **Embeddings**  
+        Sentence Transformers
+        """
+    )
+
+    st.markdown(
+        """
+        **Language Model**  
+        OpenRouter
+        """
+    )
+
+    st.markdown(
+        """
+        **Interface**  
+        Streamlit
+        """
+    )
+
+    st.divider()
 
     # Retrieval
-    st.markdown(
-        '<div class="sidebar-heading">Retrieval</div>',
-        unsafe_allow_html=True,
-    )
+    st.markdown("### Retrieval")
 
     st.markdown(
         f"""
-        <div class="sidebar-line">
-            <strong>Top-K</strong><br>
-            {TOP_K} relevant policy chunks
-        </div>
-        """,
-        unsafe_allow_html=True,
+        **Top-K:** {TOP_K}
+
+        The system retrieves the {TOP_K} most relevant policy
+        chunks before generating an answer.
+        """
     )
+
+    st.divider()
 
     # Guardrails
-    st.markdown(
-        '<div class="sidebar-heading">AI guardrails</div>',
-        unsafe_allow_html=True,
-    )
+    st.markdown("### AI Guardrails")
 
-    for guardrail in [
-        "Grounded responses",
-        "Source citations",
-        "No policy invention",
-        "Out-of-scope refusal",
-    ]:
+    st.markdown("✓ Grounded responses")
+    st.markdown("✓ Source citations")
+    st.markdown("✓ No policy invention")
+    st.markdown("✓ Out-of-scope refusal")
 
-        st.markdown(
-            f"""
-            <div class="guardrail">
-                <span>✓</span>{guardrail}
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+    st.divider()
+
+    st.caption("PolicyCopilot")
+    st.caption("Enterprise Policy Intelligence")
 
 
 # ============================================================
 # MAIN BRAND
 # ============================================================
 
-st.markdown(
-    """
-    <div class="brand-wrapper">
+brand_left, brand_right = st.columns([0.7, 9])
 
-        <div class="brand-logo">
-            P
-        </div>
+with brand_left:
+    st.markdown("## 🔵")
 
-        <div>
-            <div class="brand-name">
-                PolicyCopilot
-            </div>
+with brand_right:
+    st.markdown("## PolicyCopilot")
+    st.caption(APP_SUBTITLE)
 
-            <div class="brand-description">
-                Enterprise Policy Intelligence
-            </div>
-        </div>
 
-    </div>
-    """,
-    unsafe_allow_html=True,
+# ============================================================
+# HERO SECTION
+# ============================================================
+
+st.title("Ask about your company policies")
+
+st.write(
+    "Get accurate answers grounded in your organization's "
+    "policy knowledge base, supported by transparent source citations."
 )
 
 
 # ============================================================
-# HERO
+# APPLICATION STATUS
 # ============================================================
 
-st.markdown(
-    """
-    <div class="hero">
+if rag_pipeline is None:
 
-        <div class="hero-title">
-            Ask about your <span>company policies</span>
-        </div>
+    st.error(
+        "PolicyCopilot is currently unavailable. "
+        "Please check the application configuration."
+    )
 
-        <div class="hero-description">
-            Get accurate answers grounded in your organization's
-            policy knowledge base, supported by transparent
-            source citations.
-        </div>
+else:
 
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+    st.success("Policy knowledge base ready")
 
 
 # ============================================================
-# EXAMPLE QUESTIONS
+# POPULAR QUESTIONS
 # ============================================================
 
-st.markdown(
-    "#### Popular questions"
-)
+st.markdown("### Popular questions")
 
 example_columns = st.columns(4)
 
@@ -640,33 +358,37 @@ examples = [
     "How are business expenses reimbursed?",
 ]
 
+
+def set_question(question_text):
+    st.session_state["policy_question"] = question_text
+
+
 for index, example in enumerate(examples):
 
     with example_columns[index]:
 
-        if st.button(
+        st.button(
             example,
-            key=f"example_{index}",
+            key=f"example_question_{index}",
             use_container_width=True,
-        ):
-            st.session_state["question"] = example
+            on_click=set_question,
+            args=(example,),
+        )
 
 
 # ============================================================
 # QUESTION INPUT
 # ============================================================
 
+st.markdown("### Ask a policy question")
+
 question = st.text_area(
-    "Ask a policy question",
-    value=st.session_state.get(
-        "question",
-        "",
-    ),
+    label="",
+    key="policy_question",
     height=125,
     placeholder=(
-        "Ask a question about vacation, "
-        "remote work, expenses, security, "
-        "benefits, travel..."
+        "Ask a question about vacation, remote work, "
+        "expenses, security, benefits, travel..."
     ),
 )
 
@@ -683,22 +405,20 @@ ask = st.button(
 
 
 # ============================================================
-# EXECUTE RAG
+# PROCESS QUESTION
 # ============================================================
 
 if ask:
 
-    question = question.strip()
+    # --------------------------------------------------------
+    # Validate question
+    # --------------------------------------------------------
 
-    # --------------------------------------------------------
-    # Validate
-    # --------------------------------------------------------
+    question = question.strip()
 
     if not question:
 
-        st.warning(
-            "Please enter a policy question."
-        )
+        st.warning("Please enter a policy question.")
 
         st.stop()
 
@@ -710,33 +430,23 @@ if ask:
 
         st.stop()
 
+
     # --------------------------------------------------------
-    # Pipeline check
+    # Validate RAG
     # --------------------------------------------------------
 
     if rag_pipeline is None:
 
         st.error(
-            "PolicyCopilot is temporarily unavailable. "
+            "The policy assistant is temporarily unavailable. "
             "Please try again later."
         )
 
-        # Technical information is only available to the
-        # developer during testing.
-
-        with st.expander(
-            "Developer diagnostics"
-        ):
-
-            st.code(
-                rag_error
-                or "Unknown RAG initialization error."
-            )
-
         st.stop()
 
+
     # --------------------------------------------------------
-    # Execute
+    # Run RAG
     # --------------------------------------------------------
 
     start_time = time.perf_counter()
@@ -747,156 +457,111 @@ if ask:
             "Searching policies and generating your answer..."
         ):
 
-            result = rag_pipeline.answer(
-                question
-            )
+            result = rag_pipeline.answer(question)
 
-    except Exception as error:
+    except Exception:
 
-        st.error(
-            "The policy assistant could not process "
-            "your question."
+        logger.exception(
+            "Error while processing policy question."
         )
 
-        with st.expander(
-            "Developer diagnostics"
-        ):
-
-            st.code(str(error))
+        st.error(
+            "The policy assistant could not process your question. "
+            "Please try again."
+        )
 
         st.stop()
 
+
     latency = time.perf_counter() - start_time
 
+
     # --------------------------------------------------------
-    # Read result
+    # Validate response
     # --------------------------------------------------------
 
     if not isinstance(result, dict):
 
         st.error(
-            "The RAG pipeline returned an invalid response."
+            "The policy assistant returned an invalid response."
         )
 
         st.stop()
 
+
     answer = result.get(
         "answer",
-        "No answer was generated.",
+        "No answer was generated."
     )
 
     sources = result.get(
         "sources",
-        [],
+        []
     )
 
     citations = result.get(
         "citations",
-        [],
+        []
     )
+
 
     # ========================================================
     # ANSWER
     # ========================================================
 
-    st.markdown(
-        '<div class="answer-card">',
-        unsafe_allow_html=True,
-    )
+    st.divider()
 
-    st.markdown(
-        '<div class="answer-heading">'
-        'PolicyCopilot Answer'
-        '</div>',
-        unsafe_allow_html=True,
-    )
+    st.markdown("### PolicyCopilot Answer")
 
     # IMPORTANT:
-    # st.write() is used for the actual LLM answer.
-    # This prevents raw HTML from the LLM response
-    # from being rendered as interface markup.
+    # Use st.write() rather than injecting generated text
+    # into HTML. This prevents raw HTML/code from appearing
+    # incorrectly in the interface.
 
     st.write(answer)
-
-    st.markdown(
-        '</div>',
-        unsafe_allow_html=True,
-    )
 
 
     # ========================================================
     # METRICS
     # ========================================================
 
+    st.divider()
+
     metric1, metric2, metric3 = st.columns(3)
 
     with metric1:
 
-        st.markdown(
-            f"""
-            <div class="metric-card">
-
-                <div class="metric-label">
-                    Response time
-                </div>
-
-                <div class="metric-value">
-                    {latency:.2f}s
-                </div>
-
-            </div>
-            """,
-            unsafe_allow_html=True,
+        st.metric(
+            label="Response time",
+            value=f"{latency:.2f}s",
         )
+
 
     with metric2:
 
-        st.markdown(
-            f"""
-            <div class="metric-card">
-
-                <div class="metric-label">
-                    Sources retrieved
-                </div>
-
-                <div class="metric-value">
-                    {len(sources)}
-                </div>
-
-            </div>
-            """,
-            unsafe_allow_html=True,
+        st.metric(
+            label="Sources retrieved",
+            value=len(sources),
         )
+
 
     with metric3:
 
-        st.markdown(
-            f"""
-            <div class="metric-card">
-
-                <div class="metric-label">
-                    Retrieval depth
-                </div>
-
-                <div class="metric-value">
-                    Top {TOP_K}
-                </div>
-
-            </div>
-            """,
-            unsafe_allow_html=True,
+        st.metric(
+            label="Retrieval depth",
+            value=f"Top {TOP_K}",
         )
 
 
     # ========================================================
-    # SOURCES
+    # SOURCES & EVIDENCE
     # ========================================================
 
     if sources:
 
-        st.markdown(
-            "### Sources & Evidence"
-        )
+        st.divider()
+
+        st.markdown("### Sources & Evidence")
 
         for index, source in enumerate(
             sources,
@@ -926,35 +591,47 @@ if ask:
                 "",
             )
 
-            with st.container(
-                border=True
-            ):
+
+            # Limit very long snippets
+            if snippet and len(snippet) > 700:
+
+                snippet = (
+                    snippet[:700]
+                    + "..."
+                )
+
+
+            with st.container(border=True):
 
                 st.markdown(
                     f"**{index}. {title}**"
                 )
 
-                st.caption(
-                    f"{document_id}  •  {section}"
-                )
+                if document_id:
+
+                    st.caption(
+                        f"{document_id} • {section}"
+                    )
+
+                else:
+
+                    st.caption(section)
+
 
                 if snippet:
 
-                    if len(snippet) > 600:
-                        snippet = (
-                            snippet[:600]
-                            + "..."
-                        )
+                    st.write(snippet)
 
-                    st.write(
-                        snippet
-                    )
+
+    # ========================================================
+    # FALLBACK CITATIONS
+    # ========================================================
 
     elif citations:
 
-        st.markdown(
-            "### Citations"
-        )
+        st.divider()
+
+        st.markdown("### Citations")
 
         for citation in citations:
 
@@ -972,6 +649,11 @@ if ask:
                 f"{title} • {section}"
             )
 
+
+    # ========================================================
+    # NO SOURCES
+    # ========================================================
+
     else:
 
         st.info(
@@ -983,13 +665,9 @@ if ask:
 # FOOTER
 # ============================================================
 
-st.markdown(
-    """
-    <div class="footer">
-        PolicyCopilot · Enterprise Policy Intelligence
-        <br>
-        Policy-grounded AI assistance
-    </div>
-    """,
-    unsafe_allow_html=True,
+st.divider()
+
+st.caption(
+    "PolicyCopilot · Enterprise Policy Intelligence · "
+    "Policy-grounded AI assistance"
 )
