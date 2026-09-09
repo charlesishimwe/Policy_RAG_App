@@ -1,423 +1,1121 @@
-"""
-Policy RAG Application
-A Retrieval-Augmented Generation system for answering company policy questions.
-"""
-
-import os
-import json
-import time
-import logging
-from datetime import datetime
-from typing import List, Dict, Tuple, Optional
-from pathlib import Path
-
-import streamlit as st
+from flask import Flask, request, jsonify, render_template_string
 from dotenv import load_dotenv
-import chromadb
-from chromadb.config import Settings
-from sentence_transformers import SentenceTransformer
-import requests
+import os
+import time
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Load environment variables
 load_dotenv()
 
-# ============================================================================
+app = Flask(__name__)
+
+# ============================================================
 # CONFIGURATION
-# ============================================================================
+# ============================================================
 
-class Config:
-    """Application configuration"""
-    
-    # LLM Configuration
-    LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq")  # groq, openrouter, openai
-    GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-    OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-    
-    # Model Configuration
-    EMBEDDING_MODEL = "all-MiniLM-L6-v2"  # Free, fast, high quality
-    LLM_MODEL = "mixtral-8x7b-32768"  # Groq free tier (128k context)
-    
-    # RAG Configuration
-    CHUNK_SIZE = 500
-    CHUNK_OVERLAP = 100
-    RETRIEVAL_K = 5
-    TEMPERATURE = 0.3  # Lower = more deterministic
-    MAX_TOKENS = 1024
-    
-    # Vector Store
-    CHROMA_DB_PATH = "./chroma_db"
-    POLICIES_PATH = "./policies"
-    
-    # Evaluation
-    EVALUATION_SET_PATH = "./data/evaluation_set.json"
+APP_NAME = "PolicyCopilot"
+APP_VERSION = "1.0.0"
 
-config = Config()
+# ============================================================
+# TEMPORARY POLICY DATA
+# ============================================================
+# This is intentionally simple for Step 1.
+# Later, we will replace this with ChromaDB + embeddings + RAG.
 
-# ============================================================================
-# VECTOR STORE INITIALIZATION
-# ============================================================================
+POLICIES = [
+    {
+        "document_id": "PTO-001",
+        "title": "Paid Time Off Policy",
+        "section": "Vacation Entitlement",
+        "content": (
+            "Employees receive 20 vacation days per calendar year. "
+            "Vacation requests should normally be submitted at least "
+            "10 business days before the requested start date. "
+            "Unused vacation may carry over up to 5 days into the "
+            "following calendar year."
+        ),
+    },
+    {
+        "document_id": "REMOTE-001",
+        "title": "Remote Work Policy",
+        "section": "Remote Work Eligibility",
+        "content": (
+            "Eligible employees may work remotely up to three days per week. "
+            "Remote work requires manager approval and employees must maintain "
+            "appropriate security controls when accessing company systems."
+        ),
+    },
+    {
+        "document_id": "SEC-001",
+        "title": "Information Security Policy",
+        "section": "Multi-Factor Authentication",
+        "content": (
+            "Employees must use multi-factor authentication when accessing "
+            "company systems that support MFA. Employees must report suspected "
+            "security incidents or phishing attempts to the security team."
+        ),
+    },
+    {
+        "document_id": "EXP-001",
+        "title": "Expense Policy",
+        "section": "Expense Reimbursement",
+        "content": (
+            "Business expenses must be supported by receipts when required. "
+            "Employees should submit expense claims within 30 days of the "
+            "expense date and obtain the required manager approval."
+        ),
+    },
+]
 
-class VectorStore:
-    """Manages ChromaDB vector store operations"""
-    
-    def __init__(self, db_path: str, embedding_model_name: str):
-        """Initialize vector store"""
-        self.db_path = db_path
-        self.embedding_model = SentenceTransformer(embedding_model_name)
-        
-        # Initialize ChromaDB
-        settings = Settings(
-            chroma_db_impl="duckdb",
-            persist_directory=db_path,
-            anonymized_telemetry=False
-        )
-        self.client = chromadb.Client(settings)
-        self.collection = None
-        
-    def get_or_create_collection(self, name: str = "policies"):
-        """Get or create collection"""
-        try:
-            self.collection = self.client.get_collection(name=name)
-            logger.info(f"Loaded existing collection: {name}")
-        except Exception:
-            self.collection = self.client.create_collection(
-                name=name,
-                metadata={"hnsw:space": "cosine"}
-            )
-            logger.info(f"Created new collection: {name}")
-        return self.collection
-    
-    def add_documents(self, 
-                     documents: List[str], 
-                     metadatas: List[Dict],
-                     ids: List[str]):
-        """Add documents to vector store"""
-        if not documents:
-            return
-        
-        # Generate embeddings
-        embeddings = self.embedding_model.encode(documents).tolist()
-        
-        # Add to collection
-        self.collection.add(
-            ids=ids,
-            embeddings=embeddings,
-            metadatas=metadatas,
-            documents=documents
-        )
-        logger.info(f"Added {len(documents)} documents to vector store")
-    
-    def retrieve(self, query: str, k: int = 5) -> List[Dict]:
-        """Retrieve relevant documents"""
-        query_embedding = self.embedding_model.encode([query])[0].tolist()
-        
-        results = self.collection.query(
-            query_embeddings=[query_embedding],
-            n_results=k,
-            include=["documents", "metadatas", "distances"]
-        )
-        
-        # Format results
-        retrieved = []
-        if results["documents"] and results["documents"][0]:
-            for doc, metadata, distance in zip(
-                results["documents"][0],
-                results["metadatas"][0],
-                results["distances"][0]
-            ):
-                retrieved.append({
-                    "content": doc,
-                    "source": metadata.get("source", "Unknown"),
-                    "chunk_id": metadata.get("chunk_id", ""),
-                    "relevance_score": 1 - distance  # Convert distance to similarity
-                })
-        
-        return retrieved
 
-# ============================================================================
-# RAG PIPELINE
-# ============================================================================
+# ============================================================
+# SIMPLE RETRIEVAL
+# ============================================================
 
-class RAGPipeline:
-    """Complete RAG pipeline for policy QA"""
-    
-    def __init__(self, vector_store: VectorStore, config: Config):
-        """Initialize RAG pipeline"""
-        self.vector_store = vector_store
-        self.config = config
-        self.llm_endpoint = self._get_llm_endpoint()
-        
-    def _get_llm_endpoint(self) -> Tuple[str, str, str]:
-        """Get LLM API endpoint and headers"""
-        if config.LLM_PROVIDER == "groq":
-            return (
-                "https://api.groq.com/openai/v1/chat/completions",
-                config.GROQ_API_KEY,
-                "groq"
-            )
-        elif config.LLM_PROVIDER == "openrouter":
-            return (
-                "https://openrouter.ai/api/v1/chat/completions",
-                config.OPENROUTER_API_KEY,
-                "openrouter"
-            )
-        elif config.LLM_PROVIDER == "openai":
-            return (
-                "https://api.openai.com/v1/chat/completions",
-                config.OPENAI_API_KEY,
-                "openai"
-            )
-        else:
-            raise ValueError(f"Unknown LLM provider: {config.LLM_PROVIDER}")
-    
-    def retrieve(self, query: str) -> List[Dict]:
-        """Retrieve relevant documents"""
-        return self.vector_store.retrieve(query, k=self.config.RETRIEVAL_K)
-    
-    def generate_answer(self, 
-                       query: str, 
-                       context: List[Dict]) -> Tuple[str, List[Dict]]:
-        """Generate answer using LLM"""
-        
-        if not context:
-            return (
-                "I cannot find relevant information in the company policies to answer your question. "
-                "Please rephrase your question or contact HR for assistance.",
-                []
-            )
-        
-        # Build context string
-        context_text = "\n\n".join([
-            f"[Source: {c['source']}]\n{c['content']}"
-            for c in context
-        ])
-        
-        # Build prompt
-        system_prompt = """You are a helpful company policy assistant. Your role is to:
-1. Answer questions about company policies based ONLY on provided context
-2. Always cite the source document for your answer
-3. Be accurate and never make up policy information
-4. If the answer is not in the context, clearly state this
-5. Keep answers concise and professional
+def retrieve_policies(question, top_k=3):
+    """
+    Very simple keyword-based retrieval for the first working version.
 
-Important: Only answer based on the provided context. Do not use external knowledge about policies."""
-        
-        user_prompt = f"""Based on the following company policy documents, answer this question:
+    In the next step, this will be replaced with:
+        Documents
+        -> Chunking
+        -> Embeddings
+        -> ChromaDB
+        -> Top-K semantic retrieval
+    """
 
-Question: {query}
-
-Context from policies:
-{context_text}
-
-Please provide a clear, accurate answer with proper citations."""
-        
-        # Call LLM
-        endpoint, api_key, provider = self.llm_endpoint
-        
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
-        
-        payload = {
-            "model": self.config.LLM_MODEL,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            "temperature": self.config.TEMPERATURE,
-            "max_tokens": self.config.MAX_TOKENS
-        }
-        
-        try:
-            response = requests.post(endpoint, json=payload, headers=headers, timeout=30)
-            response.raise_for_status()
-            
-            result = response.json()
-            answer = result["choices"][0]["message"]["content"]
-            
-            return answer, context
-            
-        except requests.exceptions.RequestException as e:
-            logger.error(f"LLM API error: {e}")
-            return f"Error generating answer: {str(e)}", context
-    
-    def answer_question(self, query: str) -> Tuple[str, List[Dict], float]:
-        """Answer a question using RAG pipeline"""
-        start_time = time.time()
-        
-        # Retrieve
-        context = self.retrieve(query)
-        
-        # Generate
-        answer, retrieved = self.generate_answer(query, context)
-        
-        latency = time.time() - start_time
-        
-        return answer, retrieved, latency
-
-# ============================================================================
-# STREAMLIT APPLICATION
-# ============================================================================
-
-def init_session_state():
-    """Initialize session state"""
-    if "vector_store" not in st.session_state:
-        st.session_state.vector_store = VectorStore(
-            config.CHROMA_DB_PATH,
-            config.EMBEDDING_MODEL
-        )
-        st.session_state.vector_store.get_or_create_collection()
-    
-    if "rag_pipeline" not in st.session_state:
-        st.session_state.rag_pipeline = RAGPipeline(
-            st.session_state.vector_store,
-            config
-        )
-    
-    if "chat_history" not in st.session_state:
-        st.session_state.chat_history = []
-
-def render_header():
-    """Render application header"""
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        st.title("🏢 Policy Assistant")
-        st.markdown("Ask questions about company policies and get instant, source-cited answers.")
-    with col2:
-        st.metric("LLM", config.LLM_PROVIDER.upper())
-
-def render_chat_interface():
-    """Render chat interface"""
-    # Display chat history
-    if st.session_state.chat_history:
-        st.markdown("---")
-        st.subheader("Chat History")
-        
-        for i, (question, answer, sources, latency) in enumerate(st.session_state.chat_history):
-            with st.container():
-                col1, col2 = st.columns([1, 10])
-                with col1:
-                    st.markdown("❓")
-                with col2:
-                    st.markdown(f"**Q:** {question}")
-                
-                st.markdown(f"**A:** {answer}")
-                
-                if sources:
-                    with st.expander("📎 Sources"):
-                        for source in sources:
-                            st.markdown(f"""
-- **Source:** {source['source']}
-- **Relevance:** {source['relevance_score']:.2%}
-- **Excerpt:** {source['content'][:200]}...
-""")
-                
-                st.caption(f"⏱️ Latency: {latency:.2f}s")
-                st.markdown("---")
-    
-    # Input section
-    st.markdown("---")
-    st.subheader("Ask a Question")
-    
-    question = st.text_input(
-        "Enter your question about company policies:",
-        placeholder="e.g., 'What is the PTO policy?' or 'How many vacation days do I get?'"
+    question_words = set(
+        word.lower().strip(".,?!")
+        for word in question.split()
+        if len(word) > 2
     )
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        submit_btn = st.button("📤 Submit", use_container_width=True)
-    
-    with col2:
-        clear_btn = st.button("🗑️ Clear History", use_container_width=True)
-    
-    with col3:
-        health_btn = st.button("💚 Health Check", use_container_width=True)
-    
-    # Process question
-    if submit_btn and question:
-        with st.spinner("🔍 Searching policies and generating answer..."):
-            try:
-                answer, sources, latency = st.session_state.rag_pipeline.answer_question(question)
-                
-                # Add to history
-                st.session_state.chat_history.append((question, answer, sources, latency))
-                
-                st.success("✅ Answer generated!")
-                st.rerun()
-                
-            except Exception as e:
-                st.error(f"❌ Error: {str(e)}")
-    
-    if clear_btn:
-        st.session_state.chat_history = []
-        st.info("✨ Chat history cleared!")
-        st.rerun()
-    
-    if health_btn:
-        st.info("✅ Application is healthy and running!")
 
-def render_sidebar():
-    """Render sidebar information"""
-    with st.sidebar:
-        st.markdown("## 📊 Configuration")
-        
-        st.markdown(f"""
-- **LLM Provider:** {config.LLM_PROVIDER}
-- **Model:** {config.LLM_MODEL}
-- **Embedding Model:** {config.EMBEDDING_MODEL}
-- **Vector DB:** ChromaDB
-- **Chunk Size:** {config.CHUNK_SIZE}
-- **Retrieval K:** {config.RETRIEVAL_K}
-- **Temperature:** {config.TEMPERATURE}
-        """)
-        
-        st.markdown("---")
-        st.markdown("## 📚 About")
-        st.markdown("""
-This is a Retrieval-Augmented Generation (RAG) application that:
-1. Ingests company policy documents
-2. Converts them into embeddings
-3. Stores them in a vector database
-4. Retrieves relevant information for user queries
-5. Generates grounded answers with citations
+    scored_documents = []
 
-**Project:** Quantic AI Engineering Program
-**Author:** Charles Ishimwe
-        """)
-        
-        st.markdown("---")
-        st.markdown("## 🔗 Links")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.link_button("GitHub", "https://github.com/charlesishimwe/policy_rag_app")
-        with col2:
-            st.link_button("Documentation", "https://github.com/charlesishimwe/policy_rag_app#readme")
+    for policy in POLICIES:
+        text = (
+            policy["title"]
+            + " "
+            + policy["section"]
+            + " "
+            + policy["content"]
+        ).lower()
 
-def main():
-    """Main application entry point"""
-    # Page configuration
-    st.set_page_config(
-        page_title="Policy Assistant",
-        page_icon="🏢",
-        layout="wide",
-        initial_sidebar_state="expanded"
+        score = sum(1 for word in question_words if word in text)
+
+        scored_documents.append((score, policy))
+
+    scored_documents.sort(
+        key=lambda item: item[0],
+        reverse=True
     )
-    
-    # Initialize session state
-    init_session_state()
-    
-    # Render components
-    render_header()
-    render_sidebar()
-    render_chat_interface()
+
+    return [
+        policy
+        for score, policy in scored_documents[:top_k]
+        if score > 0
+    ]
+
+
+# ============================================================
+# GUARDRAIL
+# ============================================================
+
+def is_out_of_scope(question, retrieved_documents):
+    """
+    If no policy document appears relevant, refuse the question.
+    """
+
+    if not question or not question.strip():
+        return True
+
+    return len(retrieved_documents) == 0
+
+
+# ============================================================
+# ANSWER GENERATION
+# ============================================================
+
+def generate_answer(question, retrieved_documents):
+    """
+    Temporary deterministic answer generator.
+
+    Later this function will call the LLM through OpenRouter.
+    """
+
+    if is_out_of_scope(question, retrieved_documents):
+        return (
+            "I can only answer questions covered by the "
+            "company policy corpus."
+        )
+
+    # For this first version, return the strongest matching policy.
+    best_policy = retrieved_documents[0]
+
+    return best_policy["content"]
+
+
+# ============================================================
+# HTML / CSS UI
+# ============================================================
+
+HTML_PAGE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>{{ app_name }}</title>
+
+    <style>
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family:
+                -apple-system,
+                BlinkMacSystemFont,
+                "Segoe UI",
+                Roboto,
+                Arial,
+                sans-serif;
+
+            background: #f4f8fc;
+            color: #172033;
+            min-height: 100vh;
+        }
+
+        .navbar {
+            height: 70px;
+            background: #ffffff;
+            border-bottom: 1px solid #dbe7f3;
+
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+
+            padding: 0 6%;
+
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+
+            font-size: 21px;
+            font-weight: 700;
+
+            color: #0759b8;
+        }
+
+        .logo {
+            width: 40px;
+            height: 40px;
+
+            border-radius: 10px;
+
+            background: #0b66c3;
+            color: white;
+
+            display: flex;
+            align-items: center;
+            justify-content: center;
+
+            font-size: 19px;
+            font-weight: 800;
+
+            box-shadow: 0 5px 15px rgba(11, 102, 195, 0.20);
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+
+            color: #55708f;
+            font-size: 13px;
+        }
+
+        .status-dot {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+
+            background: #16a34a;
+        }
+
+        .hero {
+            max-width: 1050px;
+            margin: 0 auto;
+
+            padding: 70px 20px 30px;
+
+            text-align: center;
+        }
+
+        .hero-badge {
+            display: inline-block;
+
+            padding: 7px 14px;
+
+            background: #e7f2ff;
+            color: #0759b8;
+
+            border-radius: 999px;
+
+            font-size: 13px;
+            font-weight: 700;
+
+            margin-bottom: 20px;
+        }
+
+        .hero h1 {
+            font-size: 48px;
+            line-height: 1.1;
+
+            color: #092f57;
+
+            margin-bottom: 18px;
+        }
+
+        .hero h1 span {
+            color: #0b66c3;
+        }
+
+        .hero p {
+            max-width: 700px;
+            margin: 0 auto;
+
+            color: #60758d;
+
+            font-size: 17px;
+            line-height: 1.7;
+        }
+
+        .chat-container {
+            max-width: 900px;
+            margin: 25px auto 70px;
+
+            padding: 0 20px;
+        }
+
+        .chat-card {
+            background: white;
+
+            border: 1px solid #dce8f5;
+
+            border-radius: 18px;
+
+            box-shadow:
+                0 15px 45px rgba(25, 76, 125, 0.10);
+
+            overflow: hidden;
+        }
+
+        .chat-header {
+            padding: 20px 24px;
+
+            border-bottom: 1px solid #e5edf6;
+
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .chat-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: #183b60;
+        }
+
+        .chat-subtitle {
+            font-size: 13px;
+            color: #8094a9;
+            margin-top: 3px;
+        }
+
+        .chat-body {
+            padding: 25px;
+        }
+
+        textarea {
+            width: 100%;
+            min-height: 130px;
+
+            resize: vertical;
+
+            border: 1px solid #cbdbea;
+
+            border-radius: 12px;
+
+            padding: 16px;
+
+            font-size: 16px;
+
+            color: #172033;
+
+            outline: none;
+
+            transition: 0.2s;
+        }
+
+        textarea:focus {
+            border-color: #0b66c3;
+
+            box-shadow:
+                0 0 0 4px rgba(11, 102, 195, 0.10);
+        }
+
+        textarea::placeholder {
+            color: #9aaabd;
+        }
+
+        .button-row {
+            margin-top: 15px;
+
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        button {
+            border: none;
+
+            background: #0b66c3;
+            color: white;
+
+            padding: 13px 25px;
+
+            border-radius: 10px;
+
+            font-size: 15px;
+            font-weight: 700;
+
+            cursor: pointer;
+
+            transition: 0.2s;
+
+            box-shadow:
+                0 6px 16px rgba(11, 102, 195, 0.20);
+        }
+
+        button:hover {
+            background: #084f98;
+            transform: translateY(-1px);
+        }
+
+        button:disabled {
+            background: #9bb9d6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .answer-card {
+            margin-top: 25px;
+
+            background: #f8fbff;
+
+            border: 1px solid #dceaf7;
+
+            border-radius: 14px;
+
+            padding: 22px;
+
+            display: none;
+        }
+
+        .answer-header {
+            color: #0759b8;
+
+            font-size: 14px;
+            font-weight: 800;
+
+            text-transform: uppercase;
+
+            letter-spacing: 0.5px;
+
+            margin-bottom: 12px;
+        }
+
+        .answer-text {
+            color: #263b51;
+
+            font-size: 16px;
+
+            line-height: 1.7;
+        }
+
+        .sources {
+            margin-top: 22px;
+
+            border-top: 1px solid #dce8f5;
+
+            padding-top: 18px;
+        }
+
+        .sources-title {
+            color: #183b60;
+
+            font-size: 14px;
+            font-weight: 700;
+
+            margin-bottom: 12px;
+        }
+
+        .source {
+            background: white;
+
+            border: 1px solid #dbe7f3;
+
+            border-radius: 10px;
+
+            padding: 13px;
+
+            margin-top: 9px;
+        }
+
+        .source-title {
+            color: #0759b8;
+
+            font-weight: 700;
+
+            font-size: 14px;
+        }
+
+        .source-section {
+            color: #7b8ea3;
+
+            font-size: 12px;
+
+            margin-top: 4px;
+        }
+
+        .source-snippet {
+            color: #50657b;
+
+            font-size: 13px;
+
+            line-height: 1.5;
+
+            margin-top: 8px;
+        }
+
+        .error {
+            color: #b42318;
+        }
+
+        .examples {
+            max-width: 900px;
+
+            margin: 0 auto 60px;
+
+            padding: 0 20px;
+        }
+
+        .examples h2 {
+            color: #183b60;
+
+            font-size: 20px;
+
+            margin-bottom: 15px;
+        }
+
+        .example-grid {
+            display: grid;
+
+            grid-template-columns:
+                repeat(3, 1fr);
+
+            gap: 12px;
+        }
+
+        .example {
+            background: white;
+
+            border: 1px solid #dce8f5;
+
+            border-radius: 12px;
+
+            padding: 17px;
+
+            color: #526b84;
+
+            font-size: 14px;
+
+            cursor: pointer;
+
+            transition: 0.2s;
+        }
+
+        .example:hover {
+            border-color: #0b66c3;
+
+            color: #0759b8;
+
+            transform: translateY(-2px);
+        }
+
+        footer {
+            text-align: center;
+
+            padding: 25px;
+
+            color: #8295a9;
+
+            font-size: 13px;
+
+            border-top: 1px solid #dce8f5;
+
+            background: white;
+        }
+
+        @media (max-width: 700px) {
+
+            .hero h1 {
+                font-size: 36px;
+            }
+
+            .example-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .navbar {
+                padding: 0 20px;
+            }
+
+            .status {
+                display: none;
+            }
+
+        }
+
+    </style>
+</head>
+
+<body>
+
+    <nav class="navbar">
+
+        <div class="brand">
+
+            <div class="logo">
+                P
+            </div>
+
+            PolicyCopilot
+
+        </div>
+
+        <div class="status">
+
+            <div class="status-dot"></div>
+
+            System Online
+
+        </div>
+
+    </nav>
+
+
+    <section class="hero">
+
+        <div class="hero-badge">
+            ENTERPRISE AI POLICY ASSISTANT
+        </div>
+
+        <h1>
+            Ask your policies.<br>
+            <span>Get grounded answers.</span>
+        </h1>
+
+        <p>
+            PolicyCopilot helps employees find answers from
+            company policies and procedures using
+            retrieval-augmented generation.
+        </p>
+
+    </section>
+
+
+    <main class="chat-container">
+
+        <div class="chat-card">
+
+            <div class="chat-header">
+
+                <div>
+
+                    <div class="chat-title">
+                        Policy Assistant
+                    </div>
+
+                    <div class="chat-subtitle">
+                        Answers are grounded in the policy corpus
+                    </div>
+
+                </div>
+
+            </div>
+
+
+            <div class="chat-body">
+
+                <textarea
+                    id="question"
+                    placeholder="Ask a question about company policies..."
+                ></textarea>
+
+
+                <div class="button-row">
+
+                    <button
+                        id="askButton"
+                        onclick="askQuestion()"
+                    >
+                        Ask PolicyCopilot
+                    </button>
+
+                </div>
+
+
+                <div
+                    id="answerCard"
+                    class="answer-card"
+                >
+
+                    <div class="answer-header">
+                        Answer
+                    </div>
+
+                    <div
+                        id="answer"
+                        class="answer-text"
+                    ></div>
+
+
+                    <div
+                        id="sources"
+                        class="sources"
+                    >
+
+                        <div class="sources-title">
+                            Sources
+                        </div>
+
+                        <div id="sourceList"></div>
+
+                    </div>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </main>
+
+
+    <section class="examples">
+
+        <h2>
+            Try an example
+        </h2>
+
+        <div class="example-grid">
+
+            <div
+                class="example"
+                onclick="useExample(
+                    'How many vacation days do employees receive?'
+                )"
+            >
+                How many vacation days do employees receive?
+            </div>
+
+            <div
+                class="example"
+                onclick="useExample(
+                    'How many vacation days can be carried over?'
+                )"
+            >
+                How many vacation days can be carried over?
+            </div>
+
+            <div
+                class="example"
+                onclick="useExample(
+                    'What are the remote work requirements?'
+                )"
+            >
+                What are the remote work requirements?
+            </div>
+
+        </div>
+
+    </section>
+
+
+    <footer>
+
+        PolicyCopilot v{{ version }}
+        &nbsp;•&nbsp;
+        Enterprise RAG Policy Assistant
+
+    </footer>
+
+
+    <script>
+
+        function useExample(question) {
+
+            document.getElementById("question").value = question;
+
+            document.getElementById("question").focus();
+
+        }
+
+
+        async function askQuestion() {
+
+            const question =
+                document
+                    .getElementById("question")
+                    .value
+                    .trim();
+
+            const button =
+                document.getElementById("askButton");
+
+            const answerCard =
+                document.getElementById("answerCard");
+
+            const answer =
+                document.getElementById("answer");
+
+            const sourceList =
+                document.getElementById("sourceList");
+
+
+            if (!question) {
+
+                answerCard.style.display = "block";
+
+                answer.innerHTML =
+                    '<span class="error">' +
+                    'Please enter a question.' +
+                    '</span>';
+
+                sourceList.innerHTML = "";
+
+                return;
+
+            }
+
+
+            button.disabled = true;
+
+            button.innerText = "Searching policies...";
+
+
+            answerCard.style.display = "block";
+
+            answer.innerText = "Searching the policy corpus...";
+
+            sourceList.innerHTML = "";
+
+
+            try {
+
+                const response = await fetch(
+                    "/chat",
+                    {
+                        method: "POST",
+
+                        headers: {
+                            "Content-Type":
+                                "application/json"
+                        },
+
+                        body: JSON.stringify({
+                            question: question
+                        })
+                    }
+                );
+
+
+                const data = await response.json();
+
+
+                if (!response.ok) {
+
+                    throw new Error(
+                        data.error ||
+                        "Request failed."
+                    );
+
+                }
+
+
+                answer.innerText =
+                    data.answer || "No answer available.";
+
+
+                if (
+                    data.citations &&
+                    data.citations.length > 0
+                ) {
+
+                    sourceList.innerHTML =
+                        data.citations.map(
+                            source => `
+
+                                <div class="source">
+
+                                    <div class="source-title">
+                                        ${escapeHtml(
+                                            source.title
+                                        )}
+                                    </div>
+
+                                    <div class="source-section">
+                                        ${escapeHtml(
+                                            source.document_id
+                                        )}
+                                        •
+                                        ${escapeHtml(
+                                            source.section
+                                        )}
+                                    </div>
+
+                                    <div class="source-snippet">
+                                        ${escapeHtml(
+                                            source.snippet
+                                        )}
+                                    </div>
+
+                                </div>
+
+                            `
+                        ).join("");
+
+                } else {
+
+                    sourceList.innerHTML =
+                        "<div>No supporting sources found.</div>";
+
+                }
+
+            } catch (error) {
+
+                answer.innerHTML =
+                    '<span class="error">' +
+                    escapeHtml(error.message) +
+                    '</span>';
+
+                sourceList.innerHTML = "";
+
+            } finally {
+
+                button.disabled = false;
+
+                button.innerText =
+                    "Ask PolicyCopilot";
+
+            }
+
+        }
+
+
+        function escapeHtml(value) {
+
+            return String(value)
+                .replaceAll("&", "&amp;")
+                .replaceAll("<", "&lt;")
+                .replaceAll(">", "&gt;")
+                .replaceAll('"', "&quot;")
+                .replaceAll("'", "&#039;");
+
+        }
+
+
+        document
+            .getElementById("question")
+            .addEventListener(
+                "keydown",
+                function(event) {
+
+                    if (
+                        event.key === "Enter" &&
+                        !event.shiftKey
+                    ) {
+
+                        event.preventDefault();
+
+                        askQuestion();
+
+                    }
+
+                }
+            );
+
+    </script>
+
+</body>
+</html>
+"""
+
+
+# ============================================================
+# ROUTES
+# ============================================================
+
+@app.route("/", methods=["GET"])
+def home():
+    return render_template_string(
+        HTML_PAGE,
+        app_name=APP_NAME,
+        version=APP_VERSION
+    )
+
+
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify(
+        {
+            "status": "ok",
+            "service": APP_NAME,
+            "version": APP_VERSION
+        }
+    )
+
+
+@app.route("/chat", methods=["POST"])
+def chat():
+
+    start_time = time.perf_counter()
+
+    try:
+
+        data = request.get_json(silent=True)
+
+        if not data:
+            return jsonify(
+                {
+                    "error": "Request body must be JSON."
+                }
+            ), 400
+
+        question = data.get("question", "")
+
+        if not isinstance(question, str):
+            return jsonify(
+                {
+                    "error": "Question must be a string."
+                }
+            ), 400
+
+        question = question.strip()
+
+        if not question:
+            return jsonify(
+                {
+                    "error": "Question cannot be empty."
+                }
+            ), 400
+
+        # Retrieve relevant policies
+        retrieved_documents = retrieve_policies(
+            question,
+            top_k=3
+        )
+
+        # Generate answer
+        answer = generate_answer(
+            question,
+            retrieved_documents
+        )
+
+        # Build citations
+        citations = []
+
+        for policy in retrieved_documents:
+
+            citations.append(
+                {
+                    "document_id":
+                        policy["document_id"],
+
+                    "title":
+                        policy["title"],
+
+                    "section":
+                        policy["section"],
+
+                    "snippet":
+                        policy["content"]
+                }
+            )
+
+        latency_ms = round(
+            (time.perf_counter() - start_time) * 1000,
+            2
+        )
+
+        return jsonify(
+            {
+                "answer": answer,
+
+                "citations": citations,
+
+                "retrieved_documents":
+                    len(retrieved_documents),
+
+                "latency_ms":
+                    latency_ms
+            }
+        )
+
+    except Exception as error:
+
+        app.logger.exception(
+            "Error processing /chat request"
+        )
+
+        return jsonify(
+            {
+                "error":
+                    "An internal error occurred.",
+                "details":
+                    str(error)
+            }
+        ), 500
+
+
+# ============================================================
+# APPLICATION ENTRY POINT
+# ============================================================
 
 if __name__ == "__main__":
-    main()
+
+    port = int(
+        os.environ.get(
+            "PORT",
+            "5000"
+        )
+    )
+
+    app.run(
+        host="127.0.0.1",
+        port=port,
+        debug=True
+    )
