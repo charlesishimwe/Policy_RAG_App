@@ -43,7 +43,7 @@ st.set_page_config(
 
 
 # ============================================================
-# PROFESSIONAL BANKING-STYLE UI
+# ENTERPRISE BANKING-STYLE DESIGN
 # ============================================================
 
 st.markdown(
@@ -51,18 +51,33 @@ st.markdown(
     <style>
 
     /* ======================================================
-       GLOBAL
+       COLOR SYSTEM
+       
+       Blue      #155EEF
+       Dark Blue #0B3B91
+       Green     #16A34A
+       Light Blue#EAF4FF
+       White     #FFFFFF
+       Black     #0B1220
+       Gray      #64748B
+       Border    #D9E2EC
+       Background#F4F7FB
+    ====================================================== */
+
+
+    /* ======================================================
+       GLOBAL APPLICATION
     ====================================================== */
 
     .stApp {
-        background-color: #F5F7FA;
+        background: #F4F7FB;
         color: #0B1220;
     }
 
     .main .block-container {
         max-width: 1180px;
-        padding-top: 25px;
-        padding-bottom: 60px;
+        padding-top: 28px;
+        padding-bottom: 55px;
     }
 
     #MainMenu {
@@ -95,15 +110,27 @@ st.markdown(
             sans-serif;
     }
 
-    h1,
-    h2,
-    h3,
-    h4 {
+    h1 {
         color: #0B1220 !important;
+        font-size: 38px !important;
+        font-weight: 800 !important;
+        letter-spacing: -1px !important;
+        line-height: 1.2 !important;
+    }
+
+    h2 {
+        color: #0B1220 !important;
+        font-weight: 750 !important;
+    }
+
+    h3 {
+        color: #0B1220 !important;
+        font-weight: 700 !important;
     }
 
     p {
         color: #475569;
+        line-height: 1.6;
     }
 
 
@@ -112,29 +139,41 @@ st.markdown(
     ====================================================== */
 
     section[data-testid="stSidebar"] {
-        background-color: #FFFFFF;
-        border-right: 1px solid #D9E1EA;
+        background: #FFFFFF;
+        border-right: 1px solid #D9E2EC;
+        min-width: 275px !important;
+        max-width: 275px !important;
     }
 
     section[data-testid="stSidebar"] > div {
-        padding: 28px 22px;
+        padding: 24px 18px 28px 18px;
     }
 
     section[data-testid="stSidebar"] h2 {
         color: #0B1220 !important;
+        font-size: 20px !important;
         font-weight: 800 !important;
+        margin-bottom: 0 !important;
     }
 
     section[data-testid="stSidebar"] h3 {
         color: #0B1220 !important;
-        font-size: 15px !important;
-        font-weight: 700 !important;
+        font-size: 14px !important;
+        font-weight: 750 !important;
     }
 
     section[data-testid="stSidebar"] p {
         color: #475569 !important;
-        font-size: 13px;
-        line-height: 1.6;
+        font-size: 12.5px;
+    }
+
+
+    /* ======================================================
+       SIDEBAR BRAND
+    ====================================================== */
+
+    section[data-testid="stSidebar"] .stCaption {
+        color: #64748B !important;
     }
 
 
@@ -143,80 +182,97 @@ st.markdown(
     ====================================================== */
 
     div[data-testid="stTextArea"] textarea {
-        background-color: #FFFFFF !important;
+        background: #FFFFFF !important;
         color: #0B1220 !important;
 
-        border: 1px solid #B8C4D1 !important;
+        border: 1px solid #B8C6D6 !important;
 
-        border-radius: 8px !important;
+        border-radius: 9px !important;
 
         font-size: 15px !important;
 
         line-height: 1.6 !important;
 
         padding: 16px !important;
+
+        box-shadow:
+            0 1px 2px rgba(11, 18, 32, 0.03)
+            !important;
     }
 
-    div[data-testid="stTextArea"] textarea::placeholder {
-        color: #7A8797 !important;
+    div[data-testid="stTextArea"] textarea:hover {
+        border-color: #7E9CC2 !important;
     }
 
     div[data-testid="stTextArea"] textarea:focus {
         border-color: #155EEF !important;
 
         box-shadow:
-            0 0 0 2px rgba(21, 94, 239, 0.12)
+            0 0 0 3px rgba(21, 94, 239, 0.10)
             !important;
     }
 
+    div[data-testid="stTextArea"] textarea::placeholder {
+        color: #7A8797 !important;
+    }
+
 
     /* ======================================================
-       BUTTONS
+       STANDARD BUTTONS
     ====================================================== */
 
     .stButton > button {
+        min-height: 43px !important;
+
         border-radius: 8px !important;
 
-        min-height: 44px !important;
+        border: 1px solid #C7D3E0 !important;
 
-        font-weight: 600 !important;
-
-        border: 1px solid #C7D0DB !important;
-
-        background-color: #FFFFFF !important;
+        background: #FFFFFF !important;
 
         color: #0B1220 !important;
 
-        transition: all 0.15s ease;
+        font-weight: 600 !important;
+
+        font-size: 13px !important;
+
+        transition:
+            background 0.15s ease,
+            border 0.15s ease,
+            color 0.15s ease;
     }
 
     .stButton > button:hover {
+        background: #EAF4FF !important;
+
         border-color: #155EEF !important;
 
         color: #155EEF !important;
-
-        background-color: #F5F8FF !important;
     }
 
 
     /* ======================================================
-       PRIMARY BUTTON
+       PRIMARY BLUE BUTTON
     ====================================================== */
 
     button[kind="primary"] {
-        background-color: #155EEF !important;
+        background: #155EEF !important;
 
         border-color: #155EEF !important;
 
         color: #FFFFFF !important;
 
         font-weight: 700 !important;
+
+        box-shadow:
+            0 2px 5px rgba(21, 94, 239, 0.18)
+            !important;
     }
 
     button[kind="primary"]:hover {
-        background-color: #0F4BC4 !important;
+        background: #0B4CC4 !important;
 
-        border-color: #0F4BC4 !important;
+        border-color: #0B4CC4 !important;
 
         color: #FFFFFF !important;
     }
@@ -227,22 +283,45 @@ st.markdown(
     ====================================================== */
 
     div[data-testid="stMetric"] {
-        background-color: #FFFFFF;
+        background: #FFFFFF;
 
-        border: 1px solid #D9E1EA;
+        border: 1px solid #D9E2EC;
 
-        border-radius: 8px;
+        border-radius: 9px;
 
-        padding: 15px 18px;
+        padding: 15px 17px;
+
+        box-shadow:
+            0 1px 3px rgba(11, 18, 32, 0.025);
     }
 
     div[data-testid="stMetricLabel"] {
         color: #64748B !important;
+
+        font-size: 11px !important;
+
+        font-weight: 600 !important;
     }
 
     div[data-testid="stMetricValue"] {
         color: #0B1220 !important;
-        font-weight: 750 !important;
+
+        font-size: 22px !important;
+
+        font-weight: 800 !important;
+    }
+
+
+    /* ======================================================
+       CONTAINERS / CARDS
+    ====================================================== */
+
+    div[data-testid="stVerticalBlockBorderWrapper"] {
+        background: #FFFFFF !important;
+
+        border-color: #D9E2EC !important;
+
+        border-radius: 9px !important;
     }
 
 
@@ -256,15 +335,11 @@ st.markdown(
 
 
     /* ======================================================
-       EXPANDERS
+       SUCCESS
     ====================================================== */
 
-    div[data-testid="stExpander"] {
-        border: 1px solid #D9E1EA !important;
-
-        border-radius: 8px !important;
-
-        background-color: #FFFFFF !important;
+    div[data-testid="stAlert"][kind="success"] {
+        border-left-color: #16A34A !important;
     }
 
 
@@ -273,16 +348,49 @@ st.markdown(
     ====================================================== */
 
     hr {
-        border-color: #D9E1EA !important;
+        border-color: #D9E2EC !important;
     }
 
 
     /* ======================================================
-       LINK / ACCENT
+       EXPANDERS
+    ====================================================== */
+
+    div[data-testid="stExpander"] {
+        background: #FFFFFF !important;
+
+        border: 1px solid #D9E2EC !important;
+
+        border-radius: 8px !important;
+    }
+
+
+    /* ======================================================
+       LINKS
     ====================================================== */
 
     a {
         color: #155EEF !important;
+    }
+
+
+    /* ======================================================
+       CHECKBOXES / RADIO
+    ====================================================== */
+
+    div[data-testid="stCheckbox"] label {
+        color: #0B1220 !important;
+    }
+
+
+    /* ======================================================
+       FOOTER
+    ====================================================== */
+
+    .footer-text {
+        color: #64748B;
+        font-size: 11px;
+        text-align: center;
     }
 
     </style>
@@ -328,6 +436,10 @@ def initialize_rag():
 
 with st.sidebar:
 
+    # --------------------------------------------------------
+    # BRAND
+    # --------------------------------------------------------
+
     st.markdown("## 🔵 PolicyCopilot")
 
     st.caption(
@@ -336,66 +448,114 @@ with st.sidebar:
 
     st.divider()
 
+
+    # --------------------------------------------------------
+    # NAVIGATION / PRODUCT
+    # --------------------------------------------------------
+
+    st.markdown("### Workspace")
+
+    st.markdown(
+        "**Policy Assistant**"
+    )
+
+    st.caption(
+        "Search and understand company policies."
+    )
+
+
+    st.divider()
+
+
+    # --------------------------------------------------------
+    # SYSTEM
+    # --------------------------------------------------------
+
     st.markdown("### Platform")
 
     st.markdown(
-        "**Policy Intelligence**  \n"
-        "AI-powered policy search and question answering."
+        "**AI Engine**"
     )
 
-    st.markdown("### Technology")
-
-    st.markdown(
-        "**Retrieval-Augmented Generation**  \n"
-        "Grounded responses using the company policy corpus."
+    st.caption(
+        "Retrieval-Augmented Generation"
     )
 
     st.markdown(
-        "**Vector Database**  \n"
+        "**Knowledge Base**"
+    )
+
+    st.caption(
+        "Company policies & procedures"
+    )
+
+    st.markdown(
+        "**Vector Search**"
+    )
+
+    st.caption(
         "ChromaDB"
     )
 
-    st.markdown(
-        "**Embeddings**  \n"
-        "Sentence Transformers"
-    )
-
-    st.markdown(
-        "**Language Model**  \n"
-        "OpenRouter"
-    )
-
-    st.markdown(
-        "**Application**  \n"
-        "Streamlit"
-    )
 
     st.divider()
+
+
+    # --------------------------------------------------------
+    # AI CONTROLS
+    # --------------------------------------------------------
+
+    st.markdown("### AI Controls")
+
+    st.markdown(
+        "🟢 **Grounded responses**"
+    )
+
+    st.markdown(
+        "🟢 **Source citations**"
+    )
+
+    st.markdown(
+        "🟢 **No policy invention**"
+    )
+
+    st.markdown(
+        "🟢 **Out-of-scope protection**"
+    )
+
+
+    st.divider()
+
+
+    # --------------------------------------------------------
+    # RETRIEVAL SETTINGS
+    # --------------------------------------------------------
 
     st.markdown("### Retrieval")
 
     st.markdown(
-        f"**Top-K:** {TOP_K}"
+        f"**Top-K**  \n{TOP_K} relevant policy passages"
     )
 
     st.caption(
-        "The system retrieves the most relevant "
-        "policy passages before generating an answer."
+        "Relevant policy passages are retrieved "
+        "before generating the response."
     )
 
-    st.divider()
-
-    st.markdown("### AI Controls")
-
-    st.markdown("✓ Policy-grounded answers")
-    st.markdown("✓ Source citations")
-    st.markdown("✓ No policy invention")
-    st.markdown("✓ Out-of-scope protection")
 
     st.divider()
+
+
+    # --------------------------------------------------------
+    # FOOTER
+    # --------------------------------------------------------
 
     st.caption(
-        "Internal Enterprise AI Assistant"
+        "PolicyCopilot"
+    )
+
+    st.caption(
+        "Enterprise AI Assistant"
     )
 
 
@@ -403,16 +563,17 @@ with st.sidebar:
 # MAIN HEADER
 # ============================================================
 
-header_left, header_right = st.columns(
-    [0.8, 9]
+header_left, header_center, header_right = st.columns(
+    [0.7, 7.8, 1.5]
 )
+
 
 with header_left:
 
     st.markdown("## 🔵")
 
 
-with header_right:
+with header_center:
 
     st.markdown(
         "## PolicyCopilot"
@@ -420,6 +581,15 @@ with header_right:
 
     st.caption(
         "Enterprise Policy Intelligence"
+    )
+
+
+with header_right:
+
+    st.markdown("")
+
+    st.success(
+        "Secure"
     )
 
 
@@ -434,7 +604,7 @@ st.markdown(
     "# Ask about your company policies"
 )
 
-st.markdown(
+st.write(
     "Get clear, policy-grounded answers from your "
     "organization's knowledge base, with transparent "
     "source references."
@@ -442,54 +612,69 @@ st.markdown(
 
 
 # ============================================================
-# SECURITY / TRUST MESSAGE
+# TRUST / CAPABILITY CARDS
 # ============================================================
 
-trust_col1, trust_col2, trust_col3 = st.columns(3)
-
-with trust_col1:
-
-    st.markdown(
-        "**🔒 Policy grounded**"
-    )
-
-    st.caption(
-        "Answers are based on the approved policy corpus."
-    )
+card1, card2, card3 = st.columns(3)
 
 
-with trust_col2:
+with card1:
 
-    st.markdown(
-        "**✓ Transparent sources**"
-    )
+    with st.container(border=True):
 
-    st.caption(
-        "Supporting policy documents are shown with answers."
-    )
+        st.markdown(
+            "### 🟢 Grounded"
+        )
 
-
-with trust_col3:
-
-    st.markdown(
-        "**◉ Controlled AI**"
-    )
-
-    st.caption(
-        "The assistant is designed to avoid unsupported claims."
-    )
+        st.caption(
+            "Answers are generated from the approved "
+            "policy knowledge base."
+        )
 
 
-st.divider()
+with card2:
+
+    with st.container(border=True):
+
+        st.markdown(
+            "### 🔵 Transparent"
+        )
+
+        st.caption(
+            "Supporting policy documents and evidence "
+            "are provided with responses."
+        )
+
+
+with card3:
+
+    with st.container(border=True):
+
+        st.markdown(
+            "### 🩵 Controlled"
+        )
+
+        st.caption(
+            "The assistant is designed to avoid "
+            "unsupported policy claims."
+        )
+
+
+st.markdown("")
 
 
 # ============================================================
 # POPULAR QUESTIONS
 # ============================================================
 
-st.markdown("### Popular questions")
+st.markdown(
+    "### Popular questions"
+)
 
-example_columns = st.columns(4)
+st.caption(
+    "Select a question or write your own."
+)
+
 
 examples = [
     "How many vacation days do employees receive?",
@@ -506,6 +691,9 @@ def set_question(question_text):
     ] = question_text
 
 
+example_columns = st.columns(4)
+
+
 for index, example in enumerate(examples):
 
     with example_columns[index]:
@@ -520,10 +708,12 @@ for index, example in enumerate(examples):
 
 
 # ============================================================
-# QUESTION AREA
+# QUESTION INPUT
 # ============================================================
 
-st.markdown("### Ask a policy question")
+st.markdown(
+    "### Ask a policy question"
+)
 
 question = st.text_area(
     label="Policy question",
@@ -531,8 +721,8 @@ question = st.text_area(
     key="policy_question",
     height=130,
     placeholder=(
-        "Example: How many vacation days can I take "
-        "per year?"
+        "Example: How many vacation days can "
+        "employees take per year?"
     ),
 )
 
@@ -549,7 +739,7 @@ ask = st.button(
 
 
 # ============================================================
-# ANSWER PROCESSING
+# PROCESS REQUEST
 # ============================================================
 
 if ask:
@@ -581,9 +771,7 @@ if ask:
 
 
     # --------------------------------------------------------
-    # INITIALIZE RAG ONLY WHEN NEEDED
-    #
-    # This avoids displaying a startup error to the user.
+    # INITIALIZE RAG
     # --------------------------------------------------------
 
     rag_pipeline = initialize_rag()
@@ -592,8 +780,8 @@ if ask:
     if rag_pipeline is None:
 
         st.error(
-            "We couldn't connect to the policy knowledge "
-            "service right now. Please try again."
+            "The policy knowledge service is temporarily "
+            "unavailable. Please try again."
         )
 
         st.stop()
@@ -643,7 +831,7 @@ if ask:
     if not isinstance(result, dict):
 
         logger.error(
-            "RAG pipeline returned an invalid response."
+            "Invalid RAG response."
         )
 
         st.error(
@@ -671,7 +859,7 @@ if ask:
 
 
     # ========================================================
-    # ANSWER
+    # ANSWER SECTION
     # ========================================================
 
     st.divider()
@@ -680,19 +868,20 @@ if ask:
         "### PolicyCopilot Answer"
     )
 
-    st.container(
-        border=True
-    )
 
-    with st.container(
-        border=True
-    ):
+    with st.container(border=True):
 
-        st.write(answer)
+        st.markdown(
+            "🟢 **Policy-grounded response**"
+        )
+
+        st.write(
+            answer
+        )
 
 
     # ========================================================
-    # RESPONSE INFORMATION
+    # PERFORMANCE METRICS
     # ========================================================
 
     st.markdown("")
@@ -719,7 +908,7 @@ if ask:
     with metric3:
 
         st.metric(
-            "Retrieval",
+            "Retrieval depth",
             f"Top {TOP_K}"
         )
 
@@ -737,8 +926,8 @@ if ask:
         )
 
         st.caption(
-            "The following policy passages were retrieved "
-            "to support the response."
+            "Policy passages retrieved by the system "
+            "to support this answer."
         )
 
 
@@ -771,23 +960,36 @@ if ask:
             )
 
 
-            if snippet:
+            if snippet and len(snippet) > 700:
 
-                if len(snippet) > 700:
-
-                    snippet = (
-                        snippet[:700]
-                        + "..."
-                    )
+                snippet = (
+                    snippet[:700]
+                    + "..."
+                )
 
 
             with st.container(
                 border=True
             ):
 
-                st.markdown(
-                    f"**{index}. {title}**"
+                source_header_left, source_header_right = st.columns(
+                    [8, 2]
                 )
+
+
+                with source_header_left:
+
+                    st.markdown(
+                        f"**{index}. {title}**"
+                    )
+
+
+                with source_header_right:
+
+                    st.markdown(
+                        "🟢 Source"
+                    )
+
 
                 if document_id:
 
@@ -810,7 +1012,7 @@ if ask:
 
 
     # ========================================================
-    # CITATIONS FALLBACK
+    # CITATION FALLBACK
     # ========================================================
 
     elif citations:
@@ -820,6 +1022,7 @@ if ask:
         st.markdown(
             "### Citations"
         )
+
 
         for citation in citations:
 
@@ -833,12 +1036,13 @@ if ask:
                 "Policy section"
             )
 
+
             with st.container(
                 border=True
             ):
 
                 st.markdown(
-                    f"**{title}**"
+                    f"🔵 **{title}**"
                 )
 
                 st.caption(
@@ -869,5 +1073,5 @@ st.caption(
 )
 
 st.caption(
-    "Policy-grounded AI assistance"
+    "Secure • Grounded • Transparent • Enterprise-ready"
 )
