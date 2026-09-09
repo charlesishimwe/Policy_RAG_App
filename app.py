@@ -1,4 +1,3 @@
-import html
 import os
 import time
 from pathlib import Path
@@ -8,7 +7,7 @@ from dotenv import load_dotenv
 
 
 # ============================================================
-# ENVIRONMENT
+# CONFIGURATION
 # ============================================================
 
 load_dotenv()
@@ -22,7 +21,7 @@ TOP_K = int(os.getenv("TOP_K", "5"))
 
 
 # ============================================================
-# PAGE CONFIG
+# PAGE CONFIGURATION
 # ============================================================
 
 st.set_page_config(
@@ -34,45 +33,26 @@ st.set_page_config(
 
 
 # ============================================================
-# PROFESSIONAL BLUE / WHITE UI
+# PROFESSIONAL UI STYLE
 # ============================================================
 
 st.markdown(
     """
     <style>
 
-    /* ======================================================
+    /* =====================================================
        GLOBAL
-    ====================================================== */
-
-    :root {
-        --blue: #2563EB;
-        --blue-dark: #1D4ED8;
-        --blue-light: #EFF6FF;
-        --blue-border: #BFDBFE;
-
-        --white: #FFFFFF;
-        --background: #F8FAFC;
-
-        --text: #0F172A;
-        --text-secondary: #64748B;
-        --text-light: #94A3B8;
-
-        --border: #E2E8F0;
-        --success: #16A34A;
-    }
+       ===================================================== */
 
     .stApp {
-        background: var(--background);
+        background-color: #F7F9FC;
     }
 
     .main .block-container {
         max-width: 1180px;
-        padding-top: 30px;
-        padding-bottom: 50px;
+        padding-top: 28px;
+        padding-bottom: 60px;
     }
-
-    /* Hide Streamlit branding */
 
     #MainMenu {
         visibility: hidden;
@@ -87,124 +67,23 @@ st.markdown(
     }
 
 
-    /* ======================================================
+    /* =====================================================
        SIDEBAR
-    ====================================================== */
+       ===================================================== */
 
     section[data-testid="stSidebar"] {
-        background: #FFFFFF;
-        border-right: 1px solid var(--border);
+        background-color: #FFFFFF;
+        border-right: 1px solid #E5EAF1;
     }
 
     section[data-testid="stSidebar"] > div {
-        padding-top: 28px;
-    }
-
-    .sidebar-brand {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        margin-bottom: 32px;
+        padding-top: 25px;
     }
 
     .sidebar-logo {
         width: 42px;
         height: 42px;
-
-        display: flex;
-        align-items: center;
-        justify-content: center;
-
         border-radius: 11px;
-
-        background: linear-gradient(
-            135deg,
-            #2563EB,
-            #1D4ED8
-        );
-
-        color: white;
-
-        font-size: 20px;
-        font-weight: 800;
-
-        box-shadow:
-            0 5px 14px rgba(37, 99, 235, 0.20);
-    }
-
-    .sidebar-title {
-        color: var(--text);
-        font-size: 19px;
-        font-weight: 750;
-    }
-
-    .sidebar-subtitle {
-        color: var(--text-secondary);
-        font-size: 11px;
-        margin-top: 2px;
-    }
-
-    .sidebar-heading {
-        color: var(--text-secondary);
-        font-size: 10px;
-        font-weight: 750;
-
-        text-transform: uppercase;
-        letter-spacing: 0.10em;
-
-        margin-top: 24px;
-        margin-bottom: 10px;
-    }
-
-    .sidebar-item {
-        color: #334155;
-        font-size: 13px;
-        padding: 7px 0;
-        line-height: 1.4;
-    }
-
-    .sidebar-item strong {
-        color: #0F172A;
-    }
-
-    .guardrail {
-        display: flex;
-        gap: 8px;
-        align-items: center;
-
-        color: #334155;
-        font-size: 12px;
-
-        margin: 8px 0;
-    }
-
-    .check {
-        color: var(--success);
-        font-weight: 800;
-    }
-
-
-    /* ======================================================
-       TOP BRAND
-    ====================================================== */
-
-    .top-brand {
-        display: flex;
-        align-items: center;
-        gap: 13px;
-
-        margin-bottom: 42px;
-    }
-
-    .top-logo {
-        width: 46px;
-        height: 46px;
-
-        border-radius: 13px;
-
-        display: flex;
-        align-items: center;
-        justify-content: center;
 
         background: linear-gradient(
             135deg,
@@ -214,88 +93,169 @@ st.markdown(
 
         color: #FFFFFF;
 
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        font-size: 20px;
+        font-weight: 800;
+
+        margin-bottom: 12px;
+    }
+
+    .sidebar-brand-name {
+        color: #0F172A;
+        font-size: 19px;
+        font-weight: 750;
+        margin-bottom: 2px;
+    }
+
+    .sidebar-brand-description {
+        color: #64748B;
+        font-size: 12px;
+        margin-bottom: 28px;
+    }
+
+    .sidebar-heading {
+        color: #64748B;
+        font-size: 10px;
+        font-weight: 750;
+
+        text-transform: uppercase;
+        letter-spacing: 0.10em;
+
+        margin-top: 25px;
+        margin-bottom: 9px;
+    }
+
+    .sidebar-line {
+        color: #334155;
+        font-size: 13px;
+        line-height: 1.45;
+
+        padding: 6px 0;
+    }
+
+    .sidebar-line strong {
+        color: #0F172A;
+    }
+
+    .guardrail {
+        color: #334155;
+        font-size: 12px;
+
+        padding: 5px 0;
+    }
+
+    .guardrail span {
+        color: #16A34A;
+        font-weight: 800;
+        margin-right: 6px;
+    }
+
+
+    /* =====================================================
+       BRAND HEADER
+       ===================================================== */
+
+    .brand-wrapper {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+
+        margin-bottom: 35px;
+    }
+
+    .brand-logo {
+        width: 46px;
+        height: 46px;
+        border-radius: 13px;
+
+        background: linear-gradient(
+            135deg,
+            #2563EB,
+            #1D4ED8
+        );
+
+        color: #FFFFFF;
+
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
         font-size: 22px;
         font-weight: 800;
 
         box-shadow:
-            0 6px 18px rgba(37, 99, 235, 0.20);
+            0 5px 16px rgba(37, 99, 235, 0.18);
     }
 
-    .top-title {
-        color: var(--text);
+    .brand-name {
+        color: #0F172A;
         font-size: 21px;
         font-weight: 750;
     }
 
-    .top-subtitle {
-        color: var(--text-secondary);
+    .brand-description {
+        color: #64748B;
         font-size: 12px;
         margin-top: 2px;
     }
 
 
-    /* ======================================================
+    /* =====================================================
        HERO
-    ====================================================== */
+       ===================================================== */
 
-    .hero-container {
+    .hero {
         background: #FFFFFF;
 
-        border: 1px solid var(--border);
+        border: 1px solid #E3E8EF;
 
         border-radius: 18px;
 
-        padding: 42px 46px;
+        padding: 40px 45px;
 
-        margin-bottom: 22px;
+        margin-bottom: 24px;
 
         box-shadow:
             0 8px 30px rgba(15, 23, 42, 0.035);
     }
 
     .hero-title {
-        color: var(--text);
+        color: #0F172A;
 
-        font-size: 43px;
-        line-height: 1.12;
-
+        font-size: 40px;
         font-weight: 800;
 
-        letter-spacing: -1.5px;
+        line-height: 1.15;
 
-        margin-bottom: 14px;
+        letter-spacing: -1.3px;
+
+        margin-bottom: 12px;
     }
 
     .hero-title span {
-        color: var(--blue);
+        color: #2563EB;
     }
 
     .hero-description {
         max-width: 700px;
 
-        color: var(--text-secondary);
+        color: #64748B;
 
-        font-size: 16px;
+        font-size: 15px;
+
         line-height: 1.65;
     }
 
 
-    /* ======================================================
-       QUESTION SECTION
-    ====================================================== */
-
-    .section-title {
-        color: var(--text);
-
-        font-size: 15px;
-        font-weight: 700;
-
-        margin-top: 25px;
-        margin-bottom: 10px;
-    }
+    /* =====================================================
+       INPUT
+       ===================================================== */
 
     div[data-testid="stTextArea"] textarea {
-        background: #FFFFFF !important;
+        background-color: #FFFFFF !important;
 
         color: #0F172A !important;
 
@@ -305,125 +265,69 @@ st.markdown(
 
         font-size: 15px !important;
 
-        line-height: 1.55 !important;
-
         padding: 15px !important;
-
-        box-shadow:
-            0 2px 8px rgba(15, 23, 42, 0.025);
     }
 
     div[data-testid="stTextArea"] textarea:focus {
-        border: 1px solid #2563EB !important;
+        border-color: #2563EB !important;
 
         box-shadow:
             0 0 0 3px rgba(37, 99, 235, 0.10) !important;
     }
 
 
-    /* ======================================================
+    /* =====================================================
        BUTTONS
-    ====================================================== */
+       ===================================================== */
 
     .stButton > button {
         border-radius: 10px !important;
 
-        font-weight: 600 !important;
-
         min-height: 42px !important;
 
-        transition: all 0.15s ease !important;
+        font-weight: 600 !important;
     }
 
-    .stButton > button:not([kind="primary"]) {
-        background: #FFFFFF !important;
-
-        color: #334155 !important;
-
-        border: 1px solid #E2E8F0 !important;
-    }
-
-    .stButton > button:not([kind="primary"]):hover {
-        background: #EFF6FF !important;
+    .stButton > button:hover {
+        border-color: #2563EB !important;
 
         color: #2563EB !important;
 
-        border-color: #BFDBFE !important;
+        background-color: #EFF6FF !important;
     }
 
-    .stButton > button[kind="primary"] {
-        background: #2563EB !important;
 
-        color: #FFFFFF !important;
+    /* =====================================================
+       ANSWER CARD
+       ===================================================== */
 
-        border: 1px solid #2563EB !important;
+    .answer-card {
+        background-color: #FFFFFF;
 
-        font-size: 15px !important;
+        border: 1px solid #E2E8F0;
+
+        border-left: 4px solid #2563EB;
+
+        border-radius: 13px;
+
+        padding: 23px 25px;
+
+        margin-top: 24px;
 
         box-shadow:
-            0 4px 12px rgba(37, 99, 235, 0.18);
-    }
-
-    .stButton > button[kind="primary"]:hover {
-        background: #1D4ED8 !important;
-
-        border-color: #1D4ED8 !important;
-    }
-
-
-    /* ======================================================
-       ANSWER
-    ====================================================== */
-
-    .answer-container {
-        background: #FFFFFF;
-
-        border: 1px solid var(--border);
-
-        border-left: 4px solid var(--blue);
-
-        border-radius: 14px;
-
-        padding: 24px 26px;
-
-        margin-top: 25px;
-
-        box-shadow:
-            0 6px 24px rgba(15, 23, 42, 0.035);
+            0 5px 20px rgba(15, 23, 42, 0.035);
     }
 
     .answer-heading {
-        display: flex;
-        align-items: center;
-        gap: 9px;
-
-        color: var(--text);
+        color: #0F172A;
 
         font-size: 16px;
         font-weight: 750;
 
-        margin-bottom: 13px;
+        margin-bottom: 12px;
     }
 
-    .answer-icon {
-        width: 28px;
-        height: 28px;
-
-        display: flex;
-        align-items: center;
-        justify-content: center;
-
-        border-radius: 8px;
-
-        background: var(--blue-light);
-
-        color: var(--blue);
-
-        font-size: 13px;
-        font-weight: 800;
-    }
-
-    .answer-text {
+    .answer-content {
         color: #334155;
 
         font-size: 15px;
@@ -432,61 +336,14 @@ st.markdown(
     }
 
 
-    /* ======================================================
-       METRICS
-    ====================================================== */
-
-    .metric {
-        background: #FFFFFF;
-
-        border: 1px solid var(--border);
-
-        border-radius: 11px;
-
-        padding: 14px 16px;
-
-        margin-top: 14px;
-    }
-
-    .metric-label {
-        color: var(--text-secondary);
-
-        font-size: 10px;
-
-        text-transform: uppercase;
-
-        letter-spacing: 0.07em;
-    }
-
-    .metric-value {
-        color: var(--text);
-
-        font-size: 18px;
-
-        font-weight: 750;
-
-        margin-top: 4px;
-    }
-
-
-    /* ======================================================
-       SOURCES
-    ====================================================== */
-
-    .sources-heading {
-        color: var(--text);
-
-        font-size: 17px;
-        font-weight: 750;
-
-        margin-top: 30px;
-        margin-bottom: 12px;
-    }
+    /* =====================================================
+       SOURCE CARD
+       ===================================================== */
 
     .source-card {
-        background: #FFFFFF;
+        background-color: #FFFFFF;
 
-        border: 1px solid var(--border);
+        border: 1px solid #E2E8F0;
 
         border-radius: 11px;
 
@@ -495,40 +352,19 @@ st.markdown(
         margin-bottom: 10px;
     }
 
-    .source-number {
-        display: inline-flex;
-
-        width: 24px;
-        height: 24px;
-
-        align-items: center;
-        justify-content: center;
-
-        border-radius: 7px;
-
-        background: var(--blue-light);
-
-        color: var(--blue);
-
-        font-size: 11px;
-        font-weight: 750;
-
-        margin-right: 8px;
-    }
-
     .source-title {
-        color: var(--text);
+        color: #0F172A;
 
         font-size: 14px;
         font-weight: 700;
     }
 
     .source-meta {
-        color: var(--text-secondary);
+        color: #64748B;
 
         font-size: 11px;
 
-        margin-top: 7px;
+        margin-top: 6px;
     }
 
     .source-snippet {
@@ -546,9 +382,44 @@ st.markdown(
     }
 
 
-    /* ======================================================
+    /* =====================================================
+       METRIC CARDS
+       ===================================================== */
+
+    .metric-card {
+        background-color: #FFFFFF;
+
+        border: 1px solid #E2E8F0;
+
+        border-radius: 11px;
+
+        padding: 14px 16px;
+    }
+
+    .metric-label {
+        color: #64748B;
+
+        font-size: 10px;
+
+        text-transform: uppercase;
+
+        letter-spacing: 0.07em;
+    }
+
+    .metric-value {
+        color: #0F172A;
+
+        font-size: 18px;
+
+        font-weight: 750;
+
+        margin-top: 3px;
+    }
+
+
+    /* =====================================================
        FOOTER
-    ====================================================== */
+       ===================================================== */
 
     .footer {
         text-align: center;
@@ -557,11 +428,11 @@ st.markdown(
 
         font-size: 11px;
 
-        margin-top: 55px;
+        margin-top: 50px;
 
-        padding-top: 22px;
+        padding-top: 20px;
 
-        border-top: 1px solid var(--border);
+        border-top: 1px solid #E2E8F0;
     }
 
     </style>
@@ -575,12 +446,13 @@ st.markdown(
 # ============================================================
 
 @st.cache_resource(show_spinner=False)
-def load_rag_pipeline():
+def initialize_rag():
     """
-    Load the RAG pipeline once.
+    Initialize the RAG pipeline once.
 
-    Streamlit caches the initialized pipeline so the embedding
-    model and vector database are not recreated on every click.
+    Returns:
+        pipeline
+        error
     """
 
     try:
@@ -592,11 +464,11 @@ def load_rag_pipeline():
 
         return pipeline, None
 
-    except Exception as exc:
-        return None, str(exc)
+    except Exception as error:
+        return None, str(error)
 
 
-rag_pipeline, pipeline_error = load_rag_pipeline()
+rag_pipeline, rag_error = initialize_rag()
 
 
 # ============================================================
@@ -605,54 +477,62 @@ rag_pipeline, pipeline_error = load_rag_pipeline()
 
 with st.sidebar:
 
+    # Logo
     st.markdown(
-        """
-        <div class="sidebar-brand">
-
-            <div class="sidebar-logo">
-                P
-            </div>
-
-            <div>
-                <div class="sidebar-title">
-                    PolicyCopilot
-                </div>
-
-                <div class="sidebar-subtitle">
-                    Enterprise Policy Intelligence
-                </div>
-            </div>
-
-        </div>
-        """,
+        '<div class="sidebar-logo">P</div>',
         unsafe_allow_html=True,
     )
 
+    # Brand
+    st.markdown(
+        '<div class="sidebar-brand-name">PolicyCopilot</div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        '<div class="sidebar-brand-description">'
+        'Enterprise Policy Intelligence'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    # Technology
     st.markdown(
         '<div class="sidebar-heading">Technology</div>',
         unsafe_allow_html=True,
     )
 
-    technologies = [
-        ("RAG Framework", "Custom RAG Pipeline"),
-        ("Vector Database", "ChromaDB"),
-        ("Embeddings", "Sentence Transformers"),
-        ("Language Model", "OpenRouter"),
-        ("Interface", "Streamlit"),
-    ]
+    st.markdown(
+        """
+        <div class="sidebar-line">
+            <strong>RAG</strong><br>
+            Custom Retrieval-Augmented Generation
+        </div>
 
-    for name, value in technologies:
+        <div class="sidebar-line">
+            <strong>Vector database</strong><br>
+            ChromaDB
+        </div>
 
-        st.markdown(
-            f"""
-            <div class="sidebar-item">
-                <strong>{name}</strong><br>
-                {value}
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        <div class="sidebar-line">
+            <strong>Embeddings</strong><br>
+            Sentence Transformers
+        </div>
 
+        <div class="sidebar-line">
+            <strong>Language model</strong><br>
+            OpenRouter
+        </div>
+
+        <div class="sidebar-line">
+            <strong>Interface</strong><br>
+            Streamlit
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Retrieval
     st.markdown(
         '<div class="sidebar-heading">Retrieval</div>',
         unsafe_allow_html=True,
@@ -660,33 +540,31 @@ with st.sidebar:
 
     st.markdown(
         f"""
-        <div class="sidebar-item">
+        <div class="sidebar-line">
             <strong>Top-K</strong><br>
-            {TOP_K} policy chunks
+            {TOP_K} relevant policy chunks
         </div>
         """,
         unsafe_allow_html=True,
     )
 
+    # Guardrails
     st.markdown(
-        '<div class="sidebar-heading">AI Guardrails</div>',
+        '<div class="sidebar-heading">AI guardrails</div>',
         unsafe_allow_html=True,
     )
 
-    guardrails = [
-        "Corpus-grounded responses",
+    for guardrail in [
+        "Grounded responses",
         "Source citations",
         "No policy invention",
         "Out-of-scope refusal",
-    ]
-
-    for item in guardrails:
+    ]:
 
         st.markdown(
             f"""
             <div class="guardrail">
-                <span class="check">✓</span>
-                <span>{item}</span>
+                <span>✓</span>{guardrail}
             </div>
             """,
             unsafe_allow_html=True,
@@ -699,18 +577,18 @@ with st.sidebar:
 
 st.markdown(
     """
-    <div class="top-brand">
+    <div class="brand-wrapper">
 
-        <div class="top-logo">
+        <div class="brand-logo">
             P
         </div>
 
         <div>
-            <div class="top-title">
+            <div class="brand-name">
                 PolicyCopilot
             </div>
 
-            <div class="top-subtitle">
+            <div class="brand-description">
                 Enterprise Policy Intelligence
             </div>
         </div>
@@ -727,15 +605,16 @@ st.markdown(
 
 st.markdown(
     """
-    <div class="hero-container">
+    <div class="hero">
 
         <div class="hero-title">
             Ask about your <span>company policies</span>
         </div>
 
         <div class="hero-description">
-            Get clear, policy-grounded answers from your organization's
-            policy knowledge base, with transparent source citations.
+            Get accurate answers grounded in your organization's
+            policy knowledge base, supported by transparent
+            source citations.
         </div>
 
     </div>
@@ -745,13 +624,14 @@ st.markdown(
 
 
 # ============================================================
-# EXAMPLES
+# EXAMPLE QUESTIONS
 # ============================================================
 
 st.markdown(
-    '<div class="section-title">Popular questions</div>',
-    unsafe_allow_html=True,
+    "#### Popular questions"
 )
+
+example_columns = st.columns(4)
 
 examples = [
     "How many vacation days do employees receive?",
@@ -760,16 +640,14 @@ examples = [
     "How are business expenses reimbursed?",
 ]
 
-columns = st.columns(4)
+for index, example in enumerate(examples):
 
-for column, example in zip(columns, examples):
-
-    with column:
+    with example_columns[index]:
 
         if st.button(
             example,
+            key=f"example_{index}",
             use_container_width=True,
-            key=f"example_{example}",
         ):
             st.session_state["question"] = example
 
@@ -779,22 +657,25 @@ for column, example in zip(columns, examples):
 # ============================================================
 
 question = st.text_area(
-    "Question",
-    value=st.session_state.get("question", ""),
-    placeholder=(
-        "Ask a question about vacation, remote work, "
-        "expenses, security, benefits, travel..."
+    "Ask a policy question",
+    value=st.session_state.get(
+        "question",
+        "",
     ),
     height=125,
-    label_visibility="collapsed",
+    placeholder=(
+        "Ask a question about vacation, "
+        "remote work, expenses, security, "
+        "benefits, travel..."
+    ),
 )
 
 
 # ============================================================
-# ASK
+# ASK BUTTON
 # ============================================================
 
-ask_button = st.button(
+ask = st.button(
     "Ask PolicyCopilot",
     type="primary",
     use_container_width=True,
@@ -802,21 +683,21 @@ ask_button = st.button(
 
 
 # ============================================================
-# RAG EXECUTION
+# EXECUTE RAG
 # ============================================================
 
-if ask_button:
+if ask:
 
     question = question.strip()
 
     # --------------------------------------------------------
-    # INPUT VALIDATION
+    # Validate
     # --------------------------------------------------------
 
     if not question:
 
         st.warning(
-            "Please enter a question about company policies."
+            "Please enter a policy question."
         )
 
         st.stop()
@@ -830,30 +711,32 @@ if ask_button:
         st.stop()
 
     # --------------------------------------------------------
-    # CHECK PIPELINE
+    # Pipeline check
     # --------------------------------------------------------
 
     if rag_pipeline is None:
 
         st.error(
             "PolicyCopilot is temporarily unavailable. "
-            "Please try again shortly."
+            "Please try again later."
         )
 
-        # Developer-only diagnostic information.
-        # This can be removed before final submission if desired.
+        # Technical information is only available to the
+        # developer during testing.
 
-        with st.expander("Developer diagnostics"):
+        with st.expander(
+            "Developer diagnostics"
+        ):
 
             st.code(
-                pipeline_error
-                or "Unknown RAG pipeline initialization error."
+                rag_error
+                or "Unknown RAG initialization error."
             )
 
         st.stop()
 
     # --------------------------------------------------------
-    # EXECUTE RAG
+    # Execute
     # --------------------------------------------------------
 
     start_time = time.perf_counter()
@@ -861,30 +744,41 @@ if ask_button:
     try:
 
         with st.spinner(
-            "Searching policies and generating an answer..."
+            "Searching policies and generating your answer..."
         ):
 
             result = rag_pipeline.answer(
                 question
             )
 
-    except Exception as exc:
+    except Exception as error:
 
         st.error(
-            "PolicyCopilot could not process your question."
+            "The policy assistant could not process "
+            "your question."
         )
 
-        with st.expander("Developer diagnostics"):
+        with st.expander(
+            "Developer diagnostics"
+        ):
 
-            st.code(str(exc))
+            st.code(str(error))
 
         st.stop()
 
     latency = time.perf_counter() - start_time
 
     # --------------------------------------------------------
-    # RESULT
+    # Read result
     # --------------------------------------------------------
+
+    if not isinstance(result, dict):
+
+        st.error(
+            "The RAG pipeline returned an invalid response."
+        )
+
+        st.stop()
 
     answer = result.get(
         "answer",
@@ -901,40 +795,34 @@ if ask_button:
         [],
     )
 
-    # Escape HTML so generated text cannot break the UI.
-    safe_answer = html.escape(
-        str(answer)
-    ).replace(
-        "\n",
-        "<br>",
-    )
-
     # ========================================================
     # ANSWER
     # ========================================================
 
     st.markdown(
-        f"""
-        <div class="answer-container">
-
-            <div class="answer-heading">
-
-                <div class="answer-icon">
-                    AI
-                </div>
-
-                PolicyCopilot Answer
-
-            </div>
-
-            <div class="answer-text">
-                {safe_answer}
-            </div>
-
-        </div>
-        """,
+        '<div class="answer-card">',
         unsafe_allow_html=True,
     )
+
+    st.markdown(
+        '<div class="answer-heading">'
+        'PolicyCopilot Answer'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    # IMPORTANT:
+    # st.write() is used for the actual LLM answer.
+    # This prevents raw HTML from the LLM response
+    # from being rendered as interface markup.
+
+    st.write(answer)
+
+    st.markdown(
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
 
     # ========================================================
     # METRICS
@@ -946,7 +834,8 @@ if ask_button:
 
         st.markdown(
             f"""
-            <div class="metric">
+            <div class="metric-card">
+
                 <div class="metric-label">
                     Response time
                 </div>
@@ -954,6 +843,7 @@ if ask_button:
                 <div class="metric-value">
                     {latency:.2f}s
                 </div>
+
             </div>
             """,
             unsafe_allow_html=True,
@@ -963,7 +853,8 @@ if ask_button:
 
         st.markdown(
             f"""
-            <div class="metric">
+            <div class="metric-card">
+
                 <div class="metric-label">
                     Sources retrieved
                 </div>
@@ -971,6 +862,7 @@ if ask_button:
                 <div class="metric-value">
                     {len(sources)}
                 </div>
+
             </div>
             """,
             unsafe_allow_html=True,
@@ -980,7 +872,8 @@ if ask_button:
 
         st.markdown(
             f"""
-            <div class="metric">
+            <div class="metric-card">
+
                 <div class="metric-label">
                     Retrieval depth
                 </div>
@@ -988,10 +881,12 @@ if ask_button:
                 <div class="metric-value">
                     Top {TOP_K}
                 </div>
+
             </div>
             """,
             unsafe_allow_html=True,
         )
+
 
     # ========================================================
     # SOURCES
@@ -1000,8 +895,7 @@ if ask_button:
     if sources:
 
         st.markdown(
-            '<div class="sources-heading">Sources & Evidence</div>',
-            unsafe_allow_html=True,
+            "### Sources & Evidence"
         )
 
         for index, source in enumerate(
@@ -1032,73 +926,50 @@ if ask_button:
                 "",
             )
 
-            # Protect UI from HTML in document content.
-            title = html.escape(str(title))
-            document_id = html.escape(str(document_id))
-            section = html.escape(str(section))
-            snippet = html.escape(str(snippet))
+            with st.container(
+                border=True
+            ):
 
-            if len(snippet) > 600:
-                snippet = snippet[:600] + "..."
+                st.markdown(
+                    f"**{index}. {title}**"
+                )
 
-            st.markdown(
-                f"""
-                <div class="source-card">
+                st.caption(
+                    f"{document_id}  •  {section}"
+                )
 
-                    <div>
-                        <span class="source-number">
-                            {index}
-                        </span>
+                if snippet:
 
-                        <span class="source-title">
-                            {title}
-                        </span>
-                    </div>
+                    if len(snippet) > 600:
+                        snippet = (
+                            snippet[:600]
+                            + "..."
+                        )
 
-                    <div class="source-meta">
-                        {document_id}
-                        &nbsp; • &nbsp;
-                        {section}
-                    </div>
-
-                    <div class="source-snippet">
-                        {snippet}
-                    </div>
-
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+                    st.write(
+                        snippet
+                    )
 
     elif citations:
 
         st.markdown(
-            '<div class="sources-heading">Citations</div>',
-            unsafe_allow_html=True,
+            "### Citations"
         )
 
         for citation in citations:
 
-            title = html.escape(
-                str(
-                    citation.get(
-                        "title",
-                        "Policy document",
-                    )
-                )
+            title = citation.get(
+                "title",
+                "Policy document",
             )
 
-            section = html.escape(
-                str(
-                    citation.get(
-                        "section",
-                        "Policy section",
-                    )
-                )
+            section = citation.get(
+                "section",
+                "Policy section",
             )
 
             st.info(
-                f"{title} — {section}"
+                f"{title} • {section}"
             )
 
     else:
@@ -1117,7 +988,7 @@ st.markdown(
     <div class="footer">
         PolicyCopilot · Enterprise Policy Intelligence
         <br>
-        Responses are grounded in the configured company policy corpus.
+        Policy-grounded AI assistance
     </div>
     """,
     unsafe_allow_html=True,
