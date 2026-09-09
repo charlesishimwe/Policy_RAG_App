@@ -1,6 +1,6 @@
+import logging
 import os
 import time
-import logging
 from pathlib import Path
 
 import streamlit as st
@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 
 
 # ============================================================
-# CONFIGURATION
+# 1. APPLICATION CONFIGURATION
 # ============================================================
 
 load_dotenv()
@@ -16,22 +16,27 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent
 
 APP_NAME = "PolicyCopilot"
-APP_SUBTITLE = "Enterprise Policy Intelligence"
+APP_TAGLINE = "Enterprise Policy Intelligence"
 
 TOP_K = int(os.getenv("TOP_K", "5"))
 
 
 # ============================================================
-# LOGGING
+# 2. LOGGING
 # ============================================================
+# Technical errors are logged server-side.
+# They are intentionally NOT displayed to end users.
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+)
 
 logger = logging.getLogger("policycopilot")
 
 
 # ============================================================
-# PAGE CONFIGURATION
+# 3. STREAMLIT CONFIGURATION
 # ============================================================
 
 st.set_page_config(
@@ -43,40 +48,40 @@ st.set_page_config(
 
 
 # ============================================================
-# ENTERPRISE BANKING-STYLE DESIGN
+# 4. ENTERPRISE DESIGN SYSTEM
+# ============================================================
+#
+# Brand:
+#   Blue       #155EEF
+#   Deep Blue  #0B3B91
+#   Green      #16A34A
+#   Light Blue #EAF4FF
+#   White      #FFFFFF
+#   Black      #0B1220
+#
+# Neutral:
+#   Background #F5F7FA
+#   Border     #D9E2EC
+#   Gray       #64748B
+#
 # ============================================================
 
 st.markdown(
     """
     <style>
 
-    /* ======================================================
-       COLOR SYSTEM
-       
-       Blue      #155EEF
-       Dark Blue #0B3B91
-       Green     #16A34A
-       Light Blue#EAF4FF
-       White     #FFFFFF
-       Black     #0B1220
-       Gray      #64748B
-       Border    #D9E2EC
-       Background#F4F7FB
-    ====================================================== */
-
-
-    /* ======================================================
+    /* ========================================================
        GLOBAL APPLICATION
-    ====================================================== */
+    ======================================================== */
 
     .stApp {
-        background: #F4F7FB;
+        background-color: #F5F7FA;
         color: #0B1220;
     }
 
     .main .block-container {
         max-width: 1180px;
-        padding-top: 28px;
+        padding-top: 24px;
         padding-bottom: 55px;
     }
 
@@ -93,9 +98,9 @@ st.markdown(
     }
 
 
-    /* ======================================================
+    /* ========================================================
        TYPOGRAPHY
-    ====================================================== */
+    ======================================================== */
 
     html,
     body,
@@ -114,13 +119,13 @@ st.markdown(
         color: #0B1220 !important;
         font-size: 38px !important;
         font-weight: 800 !important;
-        letter-spacing: -1px !important;
-        line-height: 1.2 !important;
+        letter-spacing: -1.1px !important;
+        line-height: 1.15 !important;
     }
 
     h2 {
         color: #0B1220 !important;
-        font-weight: 750 !important;
+        font-weight: 800 !important;
     }
 
     h3 {
@@ -134,19 +139,20 @@ st.markdown(
     }
 
 
-    /* ======================================================
+    /* ========================================================
        SIDEBAR
-    ====================================================== */
+    ======================================================== */
 
     section[data-testid="stSidebar"] {
-        background: #FFFFFF;
+        background-color: #FFFFFF;
         border-right: 1px solid #D9E2EC;
-        min-width: 275px !important;
-        max-width: 275px !important;
+
+        min-width: 280px !important;
+        max-width: 280px !important;
     }
 
     section[data-testid="stSidebar"] > div {
-        padding: 24px 18px 28px 18px;
+        padding: 22px 18px 28px 18px;
     }
 
     section[data-testid="stSidebar"] h2 {
@@ -164,25 +170,17 @@ st.markdown(
 
     section[data-testid="stSidebar"] p {
         color: #475569 !important;
-        font-size: 12.5px;
+        font-size: 12.5px !important;
+        line-height: 1.55 !important;
     }
 
 
-    /* ======================================================
-       SIDEBAR BRAND
-    ====================================================== */
-
-    section[data-testid="stSidebar"] .stCaption {
-        color: #64748B !important;
-    }
-
-
-    /* ======================================================
+    /* ========================================================
        TEXT AREA
-    ====================================================== */
+    ======================================================== */
 
     div[data-testid="stTextArea"] textarea {
-        background: #FFFFFF !important;
+        background-color: #FFFFFF !important;
         color: #0B1220 !important;
 
         border: 1px solid #B8C6D6 !important;
@@ -196,7 +194,7 @@ st.markdown(
         padding: 16px !important;
 
         box-shadow:
-            0 1px 2px rgba(11, 18, 32, 0.03)
+            0 1px 3px rgba(11, 18, 32, 0.03)
             !important;
     }
 
@@ -217,9 +215,9 @@ st.markdown(
     }
 
 
-    /* ======================================================
-       STANDARD BUTTONS
-    ====================================================== */
+    /* ========================================================
+       BUTTONS
+    ======================================================== */
 
     .stButton > button {
         min-height: 43px !important;
@@ -228,7 +226,7 @@ st.markdown(
 
         border: 1px solid #C7D3E0 !important;
 
-        background: #FFFFFF !important;
+        background-color: #FFFFFF !important;
 
         color: #0B1220 !important;
 
@@ -237,13 +235,11 @@ st.markdown(
         font-size: 13px !important;
 
         transition:
-            background 0.15s ease,
-            border 0.15s ease,
-            color 0.15s ease;
+            all 0.15s ease;
     }
 
     .stButton > button:hover {
-        background: #EAF4FF !important;
+        background-color: #EAF4FF !important;
 
         border-color: #155EEF !important;
 
@@ -251,12 +247,12 @@ st.markdown(
     }
 
 
-    /* ======================================================
-       PRIMARY BLUE BUTTON
-    ====================================================== */
+    /* ========================================================
+       PRIMARY ACTION
+    ======================================================== */
 
     button[kind="primary"] {
-        background: #155EEF !important;
+        background-color: #155EEF !important;
 
         border-color: #155EEF !important;
 
@@ -265,12 +261,12 @@ st.markdown(
         font-weight: 700 !important;
 
         box-shadow:
-            0 2px 5px rgba(21, 94, 239, 0.18)
+            0 3px 8px rgba(21, 94, 239, 0.18)
             !important;
     }
 
     button[kind="primary"]:hover {
-        background: #0B4CC4 !important;
+        background-color: #0B4CC4 !important;
 
         border-color: #0B4CC4 !important;
 
@@ -278,12 +274,12 @@ st.markdown(
     }
 
 
-    /* ======================================================
+    /* ========================================================
        METRICS
-    ====================================================== */
+    ======================================================== */
 
     div[data-testid="stMetric"] {
-        background: #FFFFFF;
+        background-color: #FFFFFF;
 
         border: 1px solid #D9E2EC;
 
@@ -297,67 +293,57 @@ st.markdown(
 
     div[data-testid="stMetricLabel"] {
         color: #64748B !important;
-
         font-size: 11px !important;
-
-        font-weight: 600 !important;
+        font-weight: 650 !important;
     }
 
     div[data-testid="stMetricValue"] {
         color: #0B1220 !important;
-
         font-size: 22px !important;
-
         font-weight: 800 !important;
     }
 
 
-    /* ======================================================
+    /* ========================================================
        CONTAINERS / CARDS
-    ====================================================== */
+    ======================================================== */
 
     div[data-testid="stVerticalBlockBorderWrapper"] {
-        background: #FFFFFF !important;
+        background-color: #FFFFFF !important;
 
-        border-color: #D9E2EC !important;
+        border: 1px solid #D9E2EC !important;
 
         border-radius: 9px !important;
+
+        box-shadow:
+            0 1px 3px rgba(11, 18, 32, 0.025);
     }
 
 
-    /* ======================================================
+    /* ========================================================
        ALERTS
-    ====================================================== */
+    ======================================================== */
 
     div[data-testid="stAlert"] {
         border-radius: 8px !important;
     }
 
 
-    /* ======================================================
-       SUCCESS
-    ====================================================== */
-
-    div[data-testid="stAlert"][kind="success"] {
-        border-left-color: #16A34A !important;
-    }
-
-
-    /* ======================================================
+    /* ========================================================
        DIVIDERS
-    ====================================================== */
+    ======================================================== */
 
     hr {
         border-color: #D9E2EC !important;
     }
 
 
-    /* ======================================================
+    /* ========================================================
        EXPANDERS
-    ====================================================== */
+    ======================================================== */
 
     div[data-testid="stExpander"] {
-        background: #FFFFFF !important;
+        background-color: #FFFFFF !important;
 
         border: 1px solid #D9E2EC !important;
 
@@ -365,29 +351,11 @@ st.markdown(
     }
 
 
-    /* ======================================================
-       LINKS
-    ====================================================== */
-
-    a {
-        color: #155EEF !important;
-    }
-
-
-    /* ======================================================
-       CHECKBOXES / RADIO
-    ====================================================== */
-
-    div[data-testid="stCheckbox"] label {
-        color: #0B1220 !important;
-    }
-
-
-    /* ======================================================
+    /* ========================================================
        FOOTER
-    ====================================================== */
+    ======================================================== */
 
-    .footer-text {
+    .enterprise-footer {
         color: #64748B;
         font-size: 11px;
         text-align: center;
@@ -400,11 +368,19 @@ st.markdown(
 
 
 # ============================================================
-# RAG INITIALIZATION
+# 5. RAG PIPELINE
 # ============================================================
 
 @st.cache_resource(show_spinner=False)
 def initialize_rag():
+    """
+    Initialize the RAG pipeline once per application process.
+
+    Backend implementation:
+        rag.pipeline.RAGPipeline
+
+    UI deliberately does not expose technical exceptions.
+    """
 
     try:
 
@@ -415,23 +391,23 @@ def initialize_rag():
         )
 
         logger.info(
-            "PolicyCopilot RAG initialized successfully."
+            "RAG pipeline initialized successfully."
         )
 
         return pipeline
 
-    except Exception as error:
+    except Exception as exc:
 
         logger.exception(
             "RAG initialization failed: %s",
-            error
+            exc,
         )
 
         return None
 
 
 # ============================================================
-# SIDEBAR
+# 6. SIDEBAR
 # ============================================================
 
 with st.sidebar:
@@ -450,7 +426,7 @@ with st.sidebar:
 
 
     # --------------------------------------------------------
-    # NAVIGATION / PRODUCT
+    # WORKSPACE
     # --------------------------------------------------------
 
     st.markdown("### Workspace")
@@ -460,15 +436,12 @@ with st.sidebar:
     )
 
     st.caption(
-        "Search and understand company policies."
+        "Search and understand organizational policies."
     )
 
 
-    st.divider()
-
-
     # --------------------------------------------------------
-    # SYSTEM
+    # PLATFORM
     # --------------------------------------------------------
 
     st.markdown("### Platform")
@@ -486,7 +459,7 @@ with st.sidebar:
     )
 
     st.caption(
-        "Company policies & procedures"
+        "Company policies and procedures"
     )
 
     st.markdown(
@@ -528,18 +501,18 @@ with st.sidebar:
 
 
     # --------------------------------------------------------
-    # RETRIEVAL SETTINGS
+    # RETRIEVAL
     # --------------------------------------------------------
 
     st.markdown("### Retrieval")
 
     st.markdown(
-        f"**Top-K**  \n{TOP_K} relevant policy passages"
+        f"**Top-K**  \n{TOP_K} relevant policy chunks"
     )
 
     st.caption(
-        "Relevant policy passages are retrieved "
-        "before generating the response."
+        "Retrieval depth is configurable through "
+        "the application environment."
     )
 
 
@@ -547,7 +520,7 @@ with st.sidebar:
 
 
     # --------------------------------------------------------
-    # FOOTER
+    # PRODUCT FOOTER
     # --------------------------------------------------------
 
     st.caption(
@@ -560,11 +533,11 @@ with st.sidebar:
 
 
 # ============================================================
-# MAIN HEADER
+# 7. MAIN HEADER
 # ============================================================
 
 header_left, header_center, header_right = st.columns(
-    [0.7, 7.8, 1.5]
+    [0.65, 7.85, 1.5]
 )
 
 
@@ -580,7 +553,7 @@ with header_center:
     )
 
     st.caption(
-        "Enterprise Policy Intelligence"
+        APP_TAGLINE
     )
 
 
@@ -597,7 +570,7 @@ st.divider()
 
 
 # ============================================================
-# HERO
+# 8. HERO
 # ============================================================
 
 st.markdown(
@@ -612,13 +585,13 @@ st.write(
 
 
 # ============================================================
-# TRUST / CAPABILITY CARDS
+# 9. TRUST CARDS
 # ============================================================
 
-card1, card2, card3 = st.columns(3)
+trust_1, trust_2, trust_3 = st.columns(3)
 
 
-with card1:
+with trust_1:
 
     with st.container(border=True):
 
@@ -627,12 +600,11 @@ with card1:
         )
 
         st.caption(
-            "Answers are generated from the approved "
-            "policy knowledge base."
+            "Responses are based on retrieved policy content."
         )
 
 
-with card2:
+with trust_2:
 
     with st.container(border=True):
 
@@ -641,12 +613,11 @@ with card2:
         )
 
         st.caption(
-            "Supporting policy documents and evidence "
-            "are provided with responses."
+            "Supporting documents and evidence are shown."
         )
 
 
-with card3:
+with trust_3:
 
     with st.container(border=True):
 
@@ -655,8 +626,7 @@ with card3:
         )
 
         st.caption(
-            "The assistant is designed to avoid "
-            "unsupported policy claims."
+            "The assistant is designed to avoid unsupported claims."
         )
 
 
@@ -664,7 +634,7 @@ st.markdown("")
 
 
 # ============================================================
-# POPULAR QUESTIONS
+# 10. POPULAR QUESTIONS
 # ============================================================
 
 st.markdown(
@@ -672,11 +642,11 @@ st.markdown(
 )
 
 st.caption(
-    "Select a question or write your own."
+    "Choose a common question or enter your own."
 )
 
 
-examples = [
+popular_questions = [
     "How many vacation days do employees receive?",
     "Can unused vacation days be carried over?",
     "What is the remote work policy?",
@@ -684,31 +654,33 @@ examples = [
 ]
 
 
-def set_question(question_text):
+def select_question(question_text):
 
     st.session_state[
         "policy_question"
     ] = question_text
 
 
-example_columns = st.columns(4)
+question_columns = st.columns(4)
 
 
-for index, example in enumerate(examples):
+for index, question_example in enumerate(
+    popular_questions
+):
 
-    with example_columns[index]:
+    with question_columns[index]:
 
         st.button(
-            example,
-            key=f"example_question_{index}",
+            question_example,
+            key=f"popular_{index}",
             use_container_width=True,
-            on_click=set_question,
-            args=(example,),
+            on_click=select_question,
+            args=(question_example,),
         )
 
 
 # ============================================================
-# QUESTION INPUT
+# 11. QUESTION INPUT
 # ============================================================
 
 st.markdown(
@@ -716,9 +688,9 @@ st.markdown(
 )
 
 question = st.text_area(
-    label="Policy question",
-    label_visibility="collapsed",
+    "Policy question",
     key="policy_question",
+    label_visibility="collapsed",
     height=130,
     placeholder=(
         "Example: How many vacation days can "
@@ -728,7 +700,7 @@ question = st.text_area(
 
 
 # ============================================================
-# ASK BUTTON
+# 12. PRIMARY ACTION
 # ============================================================
 
 ask = st.button(
@@ -739,7 +711,7 @@ ask = st.button(
 
 
 # ============================================================
-# PROCESS REQUEST
+# 13. QUERY PROCESSING
 # ============================================================
 
 if ask:
@@ -748,7 +720,7 @@ if ask:
 
 
     # --------------------------------------------------------
-    # VALIDATION
+    # INPUT VALIDATION
     # --------------------------------------------------------
 
     if not question:
@@ -763,15 +735,14 @@ if ask:
     if len(question) > 1000:
 
         st.warning(
-            "Please keep your question under "
-            "1,000 characters."
+            "Please keep your question under 1,000 characters."
         )
 
         st.stop()
 
 
     # --------------------------------------------------------
-    # INITIALIZE RAG
+    # RAG INITIALIZATION
     # --------------------------------------------------------
 
     rag_pipeline = initialize_rag()
@@ -788,7 +759,7 @@ if ask:
 
 
     # --------------------------------------------------------
-    # EXECUTE RAG
+    # RAG QUERY
     # --------------------------------------------------------
 
     start_time = time.perf_counter()
@@ -804,10 +775,11 @@ if ask:
                 question
             )
 
-    except Exception:
+    except Exception as exc:
 
         logger.exception(
-            "Policy question processing failed."
+            "Question processing failed: %s",
+            exc,
         )
 
         st.error(
@@ -825,13 +797,13 @@ if ask:
 
 
     # --------------------------------------------------------
-    # VALIDATE RESULT
+    # RESPONSE VALIDATION
     # --------------------------------------------------------
 
     if not isinstance(result, dict):
 
         logger.error(
-            "Invalid RAG response."
+            "RAG pipeline returned invalid response type."
         )
 
         st.error(
@@ -859,7 +831,7 @@ if ask:
 
 
     # ========================================================
-    # ANSWER SECTION
+    # 14. ANSWER
     # ========================================================
 
     st.divider()
@@ -881,40 +853,40 @@ if ask:
 
 
     # ========================================================
-    # PERFORMANCE METRICS
+    # 15. RESPONSE METRICS
     # ========================================================
 
     st.markdown("")
 
-    metric1, metric2, metric3 = st.columns(3)
+    metric_1, metric_2, metric_3 = st.columns(3)
 
 
-    with metric1:
+    with metric_1:
 
         st.metric(
             "Response time",
-            f"{latency:.2f}s"
+            f"{latency:.2f}s",
         )
 
 
-    with metric2:
+    with metric_2:
 
         st.metric(
             "Sources retrieved",
-            len(sources)
+            len(sources),
         )
 
 
-    with metric3:
+    with metric_3:
 
         st.metric(
             "Retrieval depth",
-            f"Top {TOP_K}"
+            f"Top {TOP_K}",
         )
 
 
     # ========================================================
-    # SOURCES
+    # 16. SOURCES
     # ========================================================
 
     if sources:
@@ -926,40 +898,40 @@ if ask:
         )
 
         st.caption(
-            "Policy passages retrieved by the system "
-            "to support this answer."
+            "Retrieved policy passages supporting the response."
         )
 
 
         for index, source in enumerate(
             sources,
-            start=1
+            start=1,
         ):
 
             title = source.get(
                 "title",
                 source.get(
                     "source",
-                    "Policy document"
-                )
+                    "Policy document",
+                ),
             )
 
             document_id = source.get(
                 "document_id",
-                ""
+                "",
             )
 
             section = source.get(
                 "section",
-                "Policy section"
+                "Policy section",
             )
 
             snippet = source.get(
                 "snippet",
-                ""
+                "",
             )
 
 
+            # Keep source cards concise.
             if snippet and len(snippet) > 700:
 
                 snippet = (
@@ -972,19 +944,19 @@ if ask:
                 border=True
             ):
 
-                source_header_left, source_header_right = st.columns(
+                source_left, source_right = st.columns(
                     [8, 2]
                 )
 
 
-                with source_header_left:
+                with source_left:
 
                     st.markdown(
                         f"**{index}. {title}**"
                     )
 
 
-                with source_header_right:
+                with source_right:
 
                     st.markdown(
                         "🟢 Source"
@@ -1012,7 +984,7 @@ if ask:
 
 
     # ========================================================
-    # CITATION FALLBACK
+    # 17. CITATION FALLBACK
     # ========================================================
 
     elif citations:
@@ -1028,12 +1000,12 @@ if ask:
 
             title = citation.get(
                 "title",
-                "Policy document"
+                "Policy document",
             )
 
             section = citation.get(
                 "section",
-                "Policy section"
+                "Policy section",
             )
 
 
@@ -1051,7 +1023,7 @@ if ask:
 
 
     # ========================================================
-    # NO SOURCES
+    # 18. NO SUPPORTING EVIDENCE
     # ========================================================
 
     else:
@@ -1063,7 +1035,7 @@ if ask:
 
 
 # ============================================================
-# FOOTER
+# 19. ENTERPRISE FOOTER
 # ============================================================
 
 st.divider()
