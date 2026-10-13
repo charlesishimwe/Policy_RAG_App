@@ -1,4 +1,4 @@
-"""
+
 Acme Corp Policy Assistant — Flask Web Application
 
 Endpoints:
