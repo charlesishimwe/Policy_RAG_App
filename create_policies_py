@@ -1,0 +1,149 @@
+
+from pathlib import Path
+
+POLICY_DIR = Path("policies")
+POLICY_DIR.mkdir(parents=True, exist_ok=True)
+
+policies = {
+    "01_paid_time_off.md": {
+        "title": "Paid Time Off Policy",
+        "sections": [
+            ("Purpose", "This fictional policy describes how employees request and manage paid time off (PTO). It is an instructional example, not a real employment agreement."),
+            ("Eligibility", "Eligibility, accrual rates, maximum balances, and carryover rules must be specified in the employee's applicable employment agreement or official HR schedule. Employees should contact HR if their eligibility is unclear."),
+            ("Request procedure", "Employees should submit PTO requests through the designated HR system and identify the requested dates. Managers review requests against staffing requirements, previously approved leave, and business continuity needs. Employees should wait for written approval before treating a discretionary request as approved."),
+            ("Notice and approval", "Where practicable, employees should request planned leave at least ten business days in advance. This is a fictional administrative target, not a statutory deadline. Emergencies and unexpected illness should be communicated to the manager as soon as reasonably possible."),
+            ("Records and disputes", "The HR system is the authoritative record for balances, approvals, cancellations, and adjustments. Employees who notice an incorrect balance should provide the relevant dates and records to HR. Managers must not promise an entitlement that is not supported by the applicable policy or law."),
+            ("Examples", "A planned vacation request should be submitted and approved before bookings are treated as authorized. A sudden illness should be reported promptly and handled under the applicable sick-leave process.")
+        ]
+    },
+    "02_remote_work.md": {
+        "title": "Remote and Hybrid Work Policy",
+        "sections": [
+            ("Purpose", "This policy describes a fictional framework for remote, hybrid, and office-based work arrangements."),
+            ("Eligibility and approval", "Remote work depends on role requirements, information security, performance expectations, and manager approval. Not every role is suitable for remote work. An approved arrangement may specify work location, office attendance, working hours, and review dates."),
+            ("Availability", "Employees should maintain their agreed working schedule, attend required meetings, and keep their calendar accurate. Flexible schedules must be agreed with the manager and must comply with applicable employment requirements."),
+            ("Workspace", "Employees should choose a workspace that supports confidentiality, safe equipment use, and reliable communication. Confidential discussions should not be conducted where unauthorized people can overhear them."),
+            ("Technology and security", "Use company-approved devices, accounts, and collaboration tools. Follow multifactor authentication requirements, lock unattended screens, and report suspected account compromise promptly. Do not transfer confidential company information to personal email or unapproved storage."),
+            ("Changes and exceptions", "Employees should obtain approval before making a material change to their approved work location. Requests for exceptions should be documented and reviewed by the manager and relevant HR or security personnel.")
+        ]
+    },
+    "03_information_security.md": {
+        "title": "Information Security Policy",
+        "sections": [
+            ("Purpose and scope", "This fictional policy establishes baseline practices for protecting company systems, credentials, devices, and information."),
+            ("Identity and access", "Each worker must use an individually assigned account. Sharing passwords or authentication tokens is prohibited. Enable multifactor authentication wherever required, use approved password-management tools, and request only the access needed for assigned responsibilities."),
+            ("Data handling", "Classify information according to the company's approved classification scheme. Public, internal, confidential, and restricted information may have different storage and sharing requirements. When classification is unknown, avoid public disclosure and ask the information owner."),
+            ("Devices and networks", "Install approved security updates, enable device locking, and use company-approved remote-access methods. Do not disable endpoint protection or bypass security controls. Avoid accessing sensitive systems over untrusted networks without approved protections."),
+            ("Incident reporting", "Report suspected phishing, lost devices, unauthorized access, malware, and accidental disclosures promptly through the designated security incident channel. Preserve relevant evidence and follow instructions from the incident response team."),
+            ("Third-party tools", "Do not upload company confidential data, source code, customer records, or credentials to unapproved AI tools or external services. Obtain security and privacy review before introducing a new service that processes company information.")
+        ]
+    },
+    "04_expense_reimbursement.md": {
+        "title": "Business Expense and Reimbursement Policy",
+        "sections": [
+            ("Purpose", "This fictional policy explains the documentation and approval process for reasonable business expenses."),
+            ("Eligible expenses", "Expenses must have a legitimate business purpose, be reasonable, and comply with applicable budget and purchasing rules. Personal purchases are not reimbursable unless an explicit approved exception applies."),
+            ("Submission", "Employees should submit claims through the designated expense system, identify the business purpose and date, select the appropriate category, and attach itemized receipts when available. Missing documentation should be explained rather than fabricated."),
+            ("Approval", "Claims require review by an authorized approver who is not approving their own expense. Higher-value purchases, exceptions, and unusual expenses may require additional authorization under the current finance schedule."),
+            ("Travel and meals", "Travel, lodging, meals, mileage, and client-related expenses must follow the applicable travel limits and approval process. Employees should check current limits before incurring significant costs. This document does not establish actual monetary allowances."),
+            ("Fraud and corrections", "Duplicate claims, altered receipts, personal expenses represented as business expenses, and knowingly inaccurate claims are prohibited. Employees should promptly correct a submitted claim if an error is discovered.")
+        ]
+    },
+    "05_holidays.md": {
+        "title": "Public Holidays and Office Closures Policy",
+        "sections": [
+            ("Purpose", "This fictional policy describes how the organization communicates holidays and office closures."),
+            ("Holiday calendar", "The organization should publish an annual calendar identifying applicable office closure dates and any team-specific operating arrangements. The calendar and applicable employment terms determine which dates apply to a particular employee."),
+            ("Eligibility and pay", "Holiday pay, substitute days, premium pay, and eligibility depend on the applicable employment agreement and governing law. Employees should contact HR for their individual circumstances; this example does not establish legal entitlements."),
+            ("Operational coverage", "Teams providing essential services may use approved coverage schedules. Managers should communicate coverage expectations in advance and ensure that required staffing arrangements are documented."),
+            ("Questions and changes", "Employees should consult the official HR calendar when planning leave. If a holiday falls during scheduled leave or an office closure changes, HR should confirm how the situation is recorded."),
+            ("Remote employees", "Employees working in different jurisdictions should confirm which holiday calendar and employment rules apply to them rather than assuming every location follows the same schedule.")
+        ]
+    },
+    "06_code_of_conduct.md": {
+        "title": "Employee Code of Conduct",
+        "sections": [
+            ("Purpose", "This fictional code sets expectations for respectful, responsible, and professional conduct."),
+            ("Respectful workplace", "Employees should treat colleagues, customers, suppliers, and visitors with dignity. Harassment, intimidation, discrimination, threats, and retaliation for raising a concern in good faith are inconsistent with this policy."),
+            ("Conflicts of interest", "Disclose actual, potential, or perceived conflicts to the designated manager or compliance contact. Employees should not use their position to obtain undisclosed personal benefits or influence a decision for improper personal gain."),
+            ("Company property", "Use company equipment, funds, information, and accounts for authorized purposes. Protect assets from loss, misuse, unauthorized access, and avoidable damage."),
+            ("Reporting concerns", "Concerns may be reported through the designated manager, HR, compliance, or other approved reporting channel. Reports should include relevant facts where possible and should be handled in accordance with applicable confidentiality and investigation procedures."),
+            ("Fair process", "Reports should be assessed fairly and appropriately. Corrective action, if warranted, must follow the organization's actual procedures and applicable law; this illustrative policy does not prescribe a specific penalty.")
+        ]
+    },
+    "07_data_privacy.md": {
+        "title": "Data Privacy and Personal Information Policy",
+        "sections": [
+            ("Purpose", "This fictional policy provides baseline guidance for handling personal and sensitive information."),
+            ("Collection and purpose", "Collect personal information only for an authorized, defined business purpose and only to the extent reasonably necessary. Do not reuse information for an unrelated purpose without the required review and authorization."),
+            ("Access and disclosure", "Access personal information only when required for assigned duties. Verify recipients before sharing data and use approved channels. External disclosures, cross-border transfers, and disclosures to vendors may require privacy, legal, or security review."),
+            ("Storage and retention", "Store information in approved systems with appropriate access controls. Follow the applicable retention schedule and authorized disposal process. Do not create unnecessary personal copies or retain information indefinitely without an approved reason."),
+            ("Individual requests", "Forward requests concerning access, correction, deletion, consent, or other privacy rights to the designated privacy team. Do not promise an outcome or deadline before the responsible team assesses the request under applicable law."),
+            ("Privacy incidents", "Report suspected unauthorized access, loss, disclosure, or misuse promptly. Preserve relevant information and do not attempt an unauthorized investigation or conceal an incident.")
+        ]
+    },
+    "08_business_travel.md": {
+        "title": "Business Travel Policy",
+        "sections": [
+            ("Purpose", "This fictional policy defines a general approval and safety process for business travel."),
+            ("Pre-approval", "Obtain the required manager and budget approvals before making non-refundable bookings. The request should describe the business purpose, destination, travel dates, estimated cost, and any special requirements."),
+            ("Booking and expenses", "Use approved booking channels where available. Choose reasonable options consistent with business needs and the current travel schedule. Reimbursement requires the documentation and approvals specified by the expense policy."),
+            ("Safety and changes", "Review relevant travel advisories and organizational safety guidance before departure. Notify the appropriate contact about significant itinerary changes, cancellations, or safety incidents."),
+            ("International travel", "Before international travel, confirm entry requirements, work authorization where relevant, insurance arrangements, data-security expectations, and any required approvals. Do not assume a business trip authorizes work in another jurisdiction."),
+            ("After travel", "Submit expenses and required trip records within the timeframe in the current finance procedure. Report lost devices or suspected information exposure immediately.")
+        ]
+    },
+    "09_company_equipment.md": {
+        "title": "Company Equipment and Acceptable Use Policy",
+        "sections": [
+            ("Purpose", "This fictional policy governs the responsible use and care of company-issued equipment."),
+            ("Ownership and use", "Company-issued computers, phones, access cards, and peripherals remain company property unless a formal agreement states otherwise. Use them for authorized work and permitted incidental personal use, subject to applicable rules."),
+            ("Protection", "Keep devices physically secure, use screen locks, install required updates, and follow approved encryption and backup requirements. Do not lend equipment or allow unauthorized people to use authenticated sessions."),
+            ("Software and configuration", "Install software only through approved channels. Do not bypass administrative controls, disable security tools, or connect unauthorized storage devices where prohibited. Request assistance from IT for software or access needs."),
+            ("Loss and damage", "Report loss, theft, damage, or suspected compromise promptly to the designated IT or security channel. Provide accurate details and cooperate with containment or recovery instructions."),
+            ("Return and disposal", "Return equipment when requested, when employment ends, or when a device is replaced. Company data must be removed or retained only through an authorized IT process; employees should not independently wipe devices containing company records.")
+        ]
+    },
+    "10_leave_and_accommodation.md": {
+        "title": "Leave, Absence and Accommodation Policy",
+        "sections": [
+            ("Purpose", "This fictional policy describes how employees seek guidance about absences and workplace accommodations."),
+            ("Reporting an absence", "Notify the designated manager as soon as reasonably practicable when unable to work, following the team's approved reporting procedure. Provide information required by the applicable process without disclosing unnecessary personal details."),
+            ("Leave categories", "Vacation, illness, family responsibilities, protected leave, and other absences may be governed by different procedures and eligibility rules. HR should direct employees to the correct process and explain which documentation is legitimately required."),
+            ("Accommodation requests", "Employees may raise a workplace accommodation request with HR or the designated contact. Requests should be handled respectfully, with appropriate confidentiality and an individualized assessment under applicable law and organizational procedure."),
+            ("Documentation and privacy", "Medical or other sensitive documentation should be shared only with the authorized recipient through an approved secure channel. Managers should not request unnecessary sensitive details or circulate confidential information."),
+            ("Return to work and questions", "Where required, HR and the employee should coordinate return-to-work arrangements and clarify any approved restrictions or adjustments. If a request is urgent or its status is unclear, contact HR for guidance rather than assuming approval.")
+        ]
+    },
+}
+
+for filename, policy in policies.items():
+    lines = [
+        f"# {policy['title']}",
+        "",
+        "> **Training example:** Fictional Acme Corporation policy. Not an official employer policy or legal advice.",
+        "",
+        "Document ID: ACME-POL-" + filename[:2],
+        "Version: 1.0",
+        "Owner: Human Resources / Corporate Operations",
+        "Review cycle: Annual",
+        "",
+    ]
+
+    for heading, body in policy["sections"]:
+        lines.extend([f"## {heading}", "", body, ""])
+
+    lines.extend([
+        "## Related guidance",
+        "",
+        "For a real organization, consult the approved policy owner, current procedures, applicable employment terms, and governing law. If this example does not contain the answer to a question, the RAG assistant should say that the available evidence is insufficient.",
+        "",
+    ])
+
+    (POLICY_DIR / filename).write_text(
+        "\n".join(lines), encoding="utf-8"
+    )
+
+print(f"Created {len(policies)} synthetic policy documents in {POLICY_DIR}/")
+for filename in policies:
+    print(f" - {filename}")
