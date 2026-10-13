@@ -1,4 +1,4 @@
-import os
+mport os
 import shutil
 from langchain_community.document_loaders import TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
